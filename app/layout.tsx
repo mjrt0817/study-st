@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "ST A-1 Trainer",
-  description: "ITストラテジスト 科目A-1 学習アプリ",
+  title: "ST A-1 / A-2 Trainer",
+  description: "ITストラテジスト 科目A-1 / A-2 学習アプリ",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

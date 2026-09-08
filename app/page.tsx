@@ -5,6 +5,8 @@ import type { User } from "@supabase/supabase-js";
 import { Question, seedQuestions } from "../data/questions";
 import type { OfficialA1Question, OfficialA1Year } from "../data/officialA1";
 import { officialA1AllQuestions, officialA1Sets } from "../data/officialA1";
+import type { OfficialA2Question, OfficialA2Year } from "../data/officialA2";
+import { officialA2AllQuestions, officialA2Sets } from "../data/officialA2";
 import { supabase, supabaseConfigured } from "../lib/supabase";
 import {
   Attempt,
@@ -22,8 +24,11 @@ import {
 type Mode = "home" | "quiz" | "result" | "stats" | "manage" | "official" | "officialResult" | "review" | "reviewResult";
 type QuizKind = "random" | "mock" | "weak" | "wrong" | "category";
 type ReviewKind = "recommended" | "wrong" | "unsure" | "unknown" | "category";
+type OfficialExam = "A-1" | "A-2";
+type OfficialYear = OfficialA1Year | OfficialA2Year;
+type OfficialQuestion = OfficialA1Question | OfficialA2Question;
 type SyncState = "idle" | "loading" | "synced" | "error";
-const OFFICIAL_YEARS: OfficialA1Year[] = ["2025", "2024", "2023", "2022", "2021"];
+const OFFICIAL_YEARS: OfficialYear[] = ["2025", "2024", "2023", "2022", "2021"];
 
 const ATTEMPTS_KEY = "st-a1-attempts-v2";
 const BOOKMARKS_KEY = "st-a1-bookmarks-v2";
@@ -117,6 +122,69 @@ function dbSetupHint(error: unknown) {
   return `Supabase同期に失敗しました：${message || "接続状態を確認してください。"}`;
 }
 
+type OfficialMetrics = {
+  latest: Map<string, Attempt>;
+  currentAccuracy: number | null;
+  answeredCount: number;
+  wrongCount: number;
+  unsureCount: number;
+  unknownCount: number;
+  reviewIds: Set<string>;
+  weakCategories: { name: string; accuracy: number; count: number }[];
+  recommended: OfficialQuestion[];
+};
+
+function computeOfficialMetrics(attempts: Attempt[], questions: OfficialQuestion[]): OfficialMetrics {
+  const ids = new Set(questions.map((q) => q.id));
+  const latest = new Map<string, Attempt>();
+  attempts.forEach((attempt) => { if (ids.has(attempt.questionId)) latest.set(attempt.questionId, attempt); });
+  const current = Array.from(latest.values());
+  const reviewIds = new Set<string>();
+  latest.forEach((attempt, id) => { if (!attempt.correct || attempt.confidence !== "confident") reviewIds.add(id); });
+
+  const groups = new Map<string, Attempt[]>();
+  questions.forEach((q) => {
+    const attempt = latest.get(q.id);
+    if (!attempt) return;
+    groups.set(q.category, [...(groups.get(q.category) || []), attempt]);
+  });
+  const weakCategories = Array.from(groups.entries())
+    .map(([name, list]) => ({ name, accuracy: accuracy(list) ?? 0, count: list.length }))
+    .filter((x) => x.count >= 2)
+    .sort((a, b) => a.accuracy - b.accuracy)
+    .slice(0, 3);
+
+  const weakNames = new Set(weakCategories.map((x) => x.name));
+  const scored = questions
+    .map((q) => {
+      const attempt = latest.get(q.id);
+      if (!attempt) return { q, score: weakNames.has(q.category) ? 1 : 0, answeredAt: "" };
+      let score = 0;
+      if (!attempt.correct) score += 5;
+      if (attempt.confidence === "unknown") score += 4;
+      else if (attempt.confidence === "unsure") score += 2;
+      if (weakNames.has(q.category)) score += 2;
+      return { q, score, answeredAt: attempt.answeredAt };
+    })
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score || b.answeredAt.localeCompare(a.answeredAt));
+  const primary = scored.map((item) => item.q);
+  let recommended = primary.slice(0, 10);
+  if (recommended.length < 10) {
+    const selected = new Set(primary.map((q) => q.id));
+    const fallback = questions.filter((q) => !selected.has(q.id) && !latest.has(q.id));
+    recommended = [...primary, ...shuffle(fallback)].slice(0, 10);
+  }
+
+  return {
+    latest, currentAccuracy: accuracy(current), answeredCount: latest.size,
+    wrongCount: current.filter((a) => !a.correct).length,
+    unsureCount: current.filter((a) => a.confidence === "unsure").length,
+    unknownCount: current.filter((a) => a.confidence === "unknown").length,
+    reviewIds, weakCategories, recommended,
+  };
+}
+
 export default function Home() {
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -132,10 +200,11 @@ export default function Home() {
   const [confidence, setConfidence] = useState<Confidence>("unsure");
   const [sessionAnswers, setSessionAnswers] = useState<{ id: string; correct: boolean }[]>([]);
   const [message, setMessage] = useState("");
-  const [officialYear, setOfficialYear] = useState<OfficialA1Year>("2025");
+  const [officialExam, setOfficialExam] = useState<OfficialExam>("A-1");
+  const [officialYear, setOfficialYear] = useState<OfficialYear>("2025");
   const [officialIndex, setOfficialIndex] = useState(0);
   const [officialSelections, setOfficialSelections] = useState<Record<string, { selected: number; confidence: Confidence }>>({});
-  const [reviewQuiz, setReviewQuiz] = useState<OfficialA1Question[]>([]);
+  const [reviewQuiz, setReviewQuiz] = useState<OfficialQuestion[]>([]);
   const [reviewIndex, setReviewIndex] = useState(0);
   const [reviewSelected, setReviewSelected] = useState<number | null>(null);
   const [reviewConfidence, setReviewConfidence] = useState<Confidence>("unsure");
@@ -205,10 +274,14 @@ export default function Home() {
 
   const allQuestions = useMemo(() => [...seedQuestions, ...customQuestions], [customQuestions]);
   const categories = useMemo(() => Array.from(new Set(allQuestions.map((q) => q.category))).sort(), [allQuestions]);
-  const statsQuestions = useMemo(() => [...allQuestions, ...officialA1AllQuestions], [allQuestions]);
-  const currentOfficialSet = officialA1Sets[officialYear];
-  const currentOfficialQuestions = currentOfficialSet.questions;
+  const statsQuestions = useMemo(() => [...allQuestions, ...officialA1AllQuestions, ...officialA2AllQuestions], [allQuestions]);
+  const currentOfficialSet = officialExam === "A-1" ? officialA1Sets[officialYear] : officialA2Sets[officialYear];
+  const currentOfficialQuestions: OfficialQuestion[] = currentOfficialSet.questions;
   const statCategories = useMemo(() => Array.from(new Set(statsQuestions.map((q) => q.category))).sort(), [statsQuestions]);
+  const a1Metrics = useMemo(() => computeOfficialMetrics(attempts, officialA1AllQuestions), [attempts]);
+  const a2Metrics = useMemo(() => computeOfficialMetrics(attempts, officialA2AllQuestions), [attempts]);
+  const activeMetrics = officialExam === "A-1" ? a1Metrics : a2Metrics;
+  const latestOfficialAttempts = activeMetrics.latest;
 
   const totalAccuracy = accuracy(attempts);
   const unknownCount = attempts.filter((a) => a.confidence === "unknown").length;
@@ -221,70 +294,6 @@ export default function Home() {
     const localIds = new Set(allQuestions.map((q) => q.id));
     return new Set(Array.from(wrongQuestionIds).filter((id) => localIds.has(id)));
   }, [allQuestions, wrongQuestionIds]);
-
-  const latestOfficialAttempts = useMemo(() => {
-    const officialIds = new Set(officialA1AllQuestions.map((q) => q.id));
-    const latest = new Map<string, Attempt>();
-    attempts.forEach((attempt) => {
-      if (officialIds.has(attempt.questionId)) latest.set(attempt.questionId, attempt);
-    });
-    return latest;
-  }, [attempts]);
-
-  const officialCurrentAccuracy = useMemo(() => {
-    const latest = Array.from(latestOfficialAttempts.values());
-    return accuracy(latest);
-  }, [latestOfficialAttempts]);
-
-  const officialAnsweredCount = latestOfficialAttempts.size;
-  const officialWrongCount = useMemo(() => Array.from(latestOfficialAttempts.values()).filter((a) => !a.correct).length, [latestOfficialAttempts]);
-  const officialUnsureCount = useMemo(() => Array.from(latestOfficialAttempts.values()).filter((a) => a.confidence === "unsure").length, [latestOfficialAttempts]);
-  const officialUnknownCount = useMemo(() => Array.from(latestOfficialAttempts.values()).filter((a) => a.confidence === "unknown").length, [latestOfficialAttempts]);
-  const officialReviewIds = useMemo(() => {
-    const ids = new Set<string>();
-    latestOfficialAttempts.forEach((attempt, id) => {
-      if (!attempt.correct || attempt.confidence !== "confident") ids.add(id);
-    });
-    return ids;
-  }, [latestOfficialAttempts]);
-
-  const officialWeakCategories = useMemo(() => {
-    const groups = new Map<string, Attempt[]>();
-    officialA1AllQuestions.forEach((q) => {
-      const attempt = latestOfficialAttempts.get(q.id);
-      if (!attempt) return;
-      groups.set(q.category, [...(groups.get(q.category) || []), attempt]);
-    });
-    return Array.from(groups.entries())
-      .map(([name, list]) => ({ name, accuracy: accuracy(list) ?? 0, count: list.length }))
-      .filter((x) => x.count >= 2)
-      .sort((a, b) => a.accuracy - b.accuracy)
-      .slice(0, 3);
-  }, [latestOfficialAttempts]);
-
-  const recommendedReviewQuestions = useMemo(() => {
-    const weakNames = new Set(officialWeakCategories.map((x) => x.name));
-    const scored = officialA1AllQuestions
-      .map((q) => {
-        const attempt = latestOfficialAttempts.get(q.id);
-        if (!attempt) return { q, score: weakNames.has(q.category) ? 1 : 0, answeredAt: "" };
-        let score = 0;
-        if (!attempt.correct) score += 5;
-        if (attempt.confidence === "unknown") score += 4;
-        else if (attempt.confidence === "unsure") score += 2;
-        if (weakNames.has(q.category)) score += 2;
-        return { q, score, answeredAt: attempt.answeredAt };
-      })
-      .filter((item) => item.score > 0)
-      .sort((a, b) => b.score - a.score || b.answeredAt.localeCompare(a.answeredAt));
-
-    const primary = scored.map((item) => item.q);
-    if (primary.length >= 10) return primary.slice(0, 10);
-
-    const selected = new Set(primary.map((q) => q.id));
-    const fallback = officialA1AllQuestions.filter((q) => !selected.has(q.id) && !latestOfficialAttempts.has(q.id));
-    return [...primary, ...shuffle(fallback)].slice(0, 10);
-  }, [latestOfficialAttempts, officialWeakCategories]);
 
   const weakCategories = useMemo(() => {
     const map = new Map<string, Attempt[]>();
@@ -406,7 +415,8 @@ export default function Home() {
     }
   }
 
-  function startOfficialExam(year: OfficialA1Year = officialYear) {
+  function startOfficialExam(exam: OfficialExam, year: OfficialYear = officialYear) {
+    setOfficialExam(exam);
     setOfficialYear(year);
     setOfficialIndex(0);
     setOfficialSelections({});
@@ -452,7 +462,7 @@ export default function Home() {
       await saveAttempts(user.id, newAttempts);
       setAttempts((current) => [...current, ...newAttempts]);
       setSyncState("synced");
-      setMessage(`${officialYear}年度A-1公式過去問の結果をSupabaseへ保存しました。`);
+      setMessage(`${officialYear}年度${officialExam}公式過去問の結果をSupabaseへ保存しました。`);
       setMode("officialResult");
     } catch (error) {
       console.error(error);
@@ -461,26 +471,29 @@ export default function Home() {
     }
   }
 
-  function startOfficialReview(kind: ReviewKind, category?: string) {
+  function startOfficialReview(exam: OfficialExam, kind: ReviewKind, category?: string) {
+    setOfficialExam(exam);
     if (syncState === "error") {
       setMessage("Supabase同期を直してから復習を開始してください。");
       return;
     }
 
-    let pool: OfficialA1Question[] = [];
+    const questionPool: OfficialQuestion[] = exam === "A-1" ? officialA1AllQuestions : officialA2AllQuestions;
+    const metrics = exam === "A-1" ? a1Metrics : a2Metrics;
+    let pool: OfficialQuestion[] = [];
     if (kind === "recommended") {
-      pool = [...recommendedReviewQuestions];
+      pool = [...metrics.recommended];
     } else if (kind === "wrong") {
-      pool = officialA1AllQuestions.filter((q) => {
-        const attempt = latestOfficialAttempts.get(q.id);
+      pool = questionPool.filter((q) => {
+        const attempt = metrics.latest.get(q.id);
         return attempt && !attempt.correct;
       });
     } else if (kind === "unsure") {
-      pool = officialA1AllQuestions.filter((q) => latestOfficialAttempts.get(q.id)?.confidence === "unsure");
+      pool = questionPool.filter((q) => metrics.latest.get(q.id)?.confidence === "unsure");
     } else if (kind === "unknown") {
-      pool = officialA1AllQuestions.filter((q) => latestOfficialAttempts.get(q.id)?.confidence === "unknown");
+      pool = questionPool.filter((q) => metrics.latest.get(q.id)?.confidence === "unknown");
     } else if (kind === "category" && category) {
-      pool = officialA1AllQuestions.filter((q) => q.category === category);
+      pool = questionPool.filter((q) => q.category === category);
     }
 
     if (!pool.length) {
@@ -638,7 +651,7 @@ export default function Home() {
         <section className="auth-card">
           <div className="auth-mark">ST</div>
           <div className="eyebrow auth-eyebrow">IT STRATEGIST 2026</div>
-          <h1>科目A-1 トレーナー</h1>
+          <h1>科目A-1 / A-2 トレーナー</h1>
           <p>学習履歴はSupabaseに保存します。Googleアカウントでログインすると、PCとスマホで同じ進捗を利用できます。</p>
           {message && <div className="notice">{message}</div>}
           <button className="google-button" onClick={signInWithGoogle}>
@@ -721,8 +734,9 @@ export default function Home() {
   if (mode === "review") {
     const q = reviewQuiz[reviewIndex];
     if (!q) return null;
-    const set = officialA1Sets[q.year];
-    const pdfSrc = `/api/official-pdf?year=${q.year}#page=${q.pdfPage}&view=FitH`;
+    const reviewExam: OfficialExam = q.exam === "A-2" ? "A-2" : "A-1";
+    const set = reviewExam === "A-1" ? officialA1Sets[q.year] : officialA2Sets[q.year];
+    const pdfSrc = `/api/official-pdf?exam=${reviewExam === "A-1" ? "a1" : "a2"}&year=${q.year}#page=${q.pdfPage}&view=FitH`;
     const latest = latestOfficialAttempts.get(q.id);
     const reviewCorrect = reviewSelected === q.answer;
 
@@ -730,7 +744,7 @@ export default function Home() {
       <main className="app-shell official-shell">
         <header className="topbar">
           <button className="text-button" onClick={() => setMode("home")}>← 終了</button>
-          <div className="progress-text">年度横断復習　{reviewIndex + 1} / {reviewQuiz.length}</div>
+          <div className="progress-text">{reviewExam} 年度横断復習　{reviewIndex + 1} / {reviewQuiz.length}</div>
           <a className="secondary small pdf-link-button" href={`${set.pdfUrl}#page=${q.pdfPage}`} target="_blank" rel="noreferrer">PDFを別タブで開く ↗</a>
         </header>
         <div className="progress-track"><div className="progress-fill" style={{ width: `${((reviewIndex + (reviewAnswered ? 1 : 0)) / reviewQuiz.length) * 100}%` }} /></div>
@@ -738,7 +752,7 @@ export default function Home() {
 
         <section className="official-layout">
           <div className="official-pdf-panel">
-            <iframe key={pdfSrc} src={pdfSrc} title={`IPA公式 ${q.year}年度 A-1 問${q.number}`} />
+            <iframe key={pdfSrc} src={pdfSrc} title={`IPA公式 ${q.year}年度 ${reviewExam} 問${q.number}`} />
             <p>{q.year}年度 問{q.number}（PDF {q.pdfPage}ページ）を確認して解答してください。</p>
           </div>
           <aside className="official-answer-panel review-answer-panel">
@@ -803,10 +817,10 @@ export default function Home() {
         <section className="result-card">
           <div className="result-ring"><strong>{rate}%</strong><span>{correct}/{reviewSessionAnswers.length} 正解</span></div>
           <h1>{rate >= 80 ? "弱点がかなり埋まっています" : rate >= 60 ? "もう一周で定着を狙えます" : "このセットを優先してもう一度"}</h1>
-          <p>年度横断復習の結果はSupabaseへ保存済みです。次回のおすすめ10問にも反映されます。</p>
+          <p>{officialExam}年度横断復習の結果はSupabaseへ保存済みです。次回のおすすめ10問にも反映されます。</p>
           <div className="button-stack">
-            <button className="primary" onClick={() => startOfficialReview("recommended")}>おすすめ10問を更新</button>
-            <button className="secondary" onClick={() => startOfficialReview("wrong")}>公式の誤答だけ</button>
+            <button className="primary" onClick={() => startOfficialReview(officialExam, "recommended")}>おすすめ10問を更新</button>
+            <button className="secondary" onClick={() => startOfficialReview(officialExam, "wrong")}>公式の誤答だけ</button>
             <button className="text-button" onClick={() => setMode("home")}>ホームへ戻る</button>
           </div>
         </section>
@@ -818,29 +832,29 @@ export default function Home() {
     const q = currentOfficialQuestions[officialIndex];
     const current = officialSelections[q.id];
     const answeredCount = Object.keys(officialSelections).length;
-    const pdfSrc = `/api/official-pdf?year=${officialYear}#page=${q.pdfPage}&view=FitH`;
+    const pdfSrc = `/api/official-pdf?exam=${officialExam === "A-1" ? "a1" : "a2"}&year=${officialYear}#page=${q.pdfPage}&view=FitH`;
 
     return (
       <main className="app-shell official-shell">
         <header className="topbar">
           <button className="text-button" onClick={() => setMode("home")}>← 終了</button>
-          <div className="progress-text">{officialYear}年度公式 A-1　回答済み {answeredCount} / 30</div>
+          <div className="progress-text">{officialYear}年度公式 {officialExam}　回答済み {answeredCount} / {currentOfficialQuestions.length}</div>
           <a className="secondary small pdf-link-button" href={currentOfficialSet.pdfUrl} target="_blank" rel="noreferrer">PDFを別タブで開く ↗</a>
         </header>
-        <div className="progress-track"><div className="progress-fill" style={{ width: `${(answeredCount / 30) * 100}%` }} /></div>
+        <div className="progress-track"><div className="progress-fill" style={{ width: `${(answeredCount / currentOfficialQuestions.length) * 100}%` }} /></div>
         {message && <div className="notice" onClick={() => setMessage("")}>{message}</div>}
 
         <section className="official-layout">
           <div className="official-pdf-panel">
-            <iframe key={pdfSrc} src={pdfSrc} title={`IPA公式 ${officialYear}年度 A-1 問${q.number}`} />
+            <iframe key={pdfSrc} src={pdfSrc} title={`IPA公式 ${officialYear}年度 ${officialExam} 問${q.number}`} />
             <p>PDFはアプリ経由で表示しています。表示されない場合は、上部の「PDFを別タブで開く」を利用してください。</p>
           </div>
           <aside className="official-answer-panel">
             <div className="official-question-heading">
-              <span>IPA {currentOfficialSet.eraLabel} 午前Ⅰ</span>
+              <span>IPA {currentOfficialSet.eraLabel} {officialExam === "A-1" ? "午前Ⅰ" : "午前Ⅱ"}</span>
               <strong>問{q.number}</strong>
             </div>
-            <p className="muted-text">左の公式問題を確認して、解答だけこちらで記録します。採点は30問終了後にまとめて行います。</p>
+            <p className="muted-text">左の公式問題を確認して、解答だけこちらで記録します。採点は全問終了後にまとめて行います。</p>
             <div className="official-choice-grid">
               {[0, 1, 2, 3].map((choice) => (
                 <button
@@ -876,14 +890,14 @@ export default function Home() {
 
             <div className="official-step-buttons">
               <button className="secondary" disabled={officialIndex === 0} onClick={() => setOfficialIndex((x) => Math.max(0, x - 1))}>← 前へ</button>
-              {officialIndex < 29 ? (
-                <button className="primary" onClick={() => setOfficialIndex((x) => Math.min(29, x + 1))}>次へ →</button>
+              {officialIndex < currentOfficialQuestions.length - 1 ? (
+                <button className="primary" onClick={() => setOfficialIndex((x) => Math.min(currentOfficialQuestions.length - 1, x + 1))}>次へ →</button>
               ) : (
                 <button className="primary" disabled={syncState === "loading"} onClick={() => void finishOfficialExam()}>採点して保存</button>
               )}
             </div>
-            {answeredCount === 30 && officialIndex < 29 && (
-              <button className="primary large" disabled={syncState === "loading"} onClick={() => void finishOfficialExam()}>30問を採点して保存</button>
+            {answeredCount === currentOfficialQuestions.length && officialIndex < currentOfficialQuestions.length - 1 && (
+              <button className="primary large" disabled={syncState === "loading"} onClick={() => void finishOfficialExam()}>{currentOfficialQuestions.length}問を採点して保存</button>
             )}
           </aside>
         </section>
@@ -894,17 +908,17 @@ export default function Home() {
   if (mode === "officialResult") {
     const results = currentOfficialQuestions.map((q) => ({ q, answer: officialSelections[q.id], correct: officialSelections[q.id]?.selected === q.answer }));
     const correct = results.filter((x) => x.correct).length;
-    const rate = Math.round((correct / 30) * 100);
+    const rate = Math.round((correct / currentOfficialQuestions.length) * 100);
     const wrong = results.filter((x) => !x.correct);
     return (
       <main className="app-shell narrow official-result-shell">
         {message && <div className="notice" onClick={() => setMessage("")}>{message}</div>}
         <section className="result-card">
-          <div className="result-ring"><strong>{rate}%</strong><span>{correct}/30 正解</span></div>
-          <h1>{rate >= 75 ? "A-1はかなり良い位置です" : rate >= 60 ? "合格ライン付近です" : "弱点分野を優先して補強しましょう"}</h1>
-          <p>{officialYear}年度春期の公式30問です。結果はSupabaseへ保存済みです。</p>
+          <div className="result-ring"><strong>{rate}%</strong><span>{correct}/{currentOfficialQuestions.length} 正解</span></div>
+          <h1>{rate >= 75 ? `${officialExam}はかなり良い位置です` : rate >= 60 ? "合格ライン付近です" : "弱点分野を優先して補強しましょう"}</h1>
+          <p>{officialYear}年度春期の公式{currentOfficialQuestions.length}問（{officialExam}）です。結果はSupabaseへ保存済みです。</p>
           <div className="button-stack">
-            <button className="primary" onClick={() => startOfficialExam(officialYear)}>もう一度30問解く</button>
+            <button className="primary" onClick={() => startOfficialExam(officialExam, officialYear)}>もう一度{currentOfficialQuestions.length}問解く</button>
             <a className="secondary result-link" href={currentOfficialSet.answerPdfUrl} target="_blank" rel="noreferrer">IPA公式解答を開く ↗</a>
             <button className="text-button" onClick={() => setMode("home")}>ホームへ戻る</button>
           </div>
@@ -989,7 +1003,7 @@ export default function Home() {
             <div><strong>{customQuestions.length}</strong><span>追加問題</span></div>
             <div><strong>{allQuestions.length}</strong><span>アプリ内合計</span></div>
           </div>
-          <p className="muted-text">別途、2025・2024・2023・2022・2021年度春期の公式A-1を各30問、「公式過去問モード」で利用できます（問題本文・図表はIPA公式PDFを参照）。</p>
+          <p className="muted-text">別途、2025〜2021年度春期の公式A-1各30問（150問）とA-2各25問（125問）を「公式過去問モード」で利用できます（問題本文・図表はIPA公式PDFを参照）。</p>
           <a className="link-card" href="https://www.ipa.go.jp/shiken/mondai-kaiotu/index.html" target="_blank" rel="noreferrer">
             IPA公式 過去問題ページを開く ↗
           </a>
@@ -1004,7 +1018,7 @@ export default function Home() {
       <section className="hero">
         <div>
           <div className="eyebrow">ITストラテジスト 2026</div>
-          <h1>科目A-1 トレーナー</h1>
+          <h1>科目A-1 / A-2 トレーナー</h1>
           <p>解く → 弱点を見つける → 弱点だけ反復する。</p>
         </div>
         <button className="gear" onClick={() => setMode("manage")}>⚙</button>
@@ -1027,63 +1041,68 @@ export default function Home() {
       {message && <div className="notice" onClick={() => setMessage("")}>{message}</div>}
 
       <section className="summary-grid review-summary-grid">
-        <div className="summary-card"><span>公式150問 回答済み</span><strong>{officialAnsweredCount}</strong><small>/ 150問</small></div>
-        <div className="summary-card"><span>直近5年 正答率</span><strong>{officialCurrentAccuracy ?? "—"}</strong><small>{officialCurrentAccuracy === null ? "" : "%"}</small></div>
-        <div className="summary-card"><span>要復習</span><strong>{officialReviewIds.size}</strong><small>問</small></div>
+        <div className="summary-card"><span>公式275問 回答済み</span><strong>{a1Metrics.answeredCount + a2Metrics.answeredCount}</strong><small>/ 275問</small></div>
+        <div className="summary-card"><span>A-1 正答率</span><strong>{a1Metrics.currentAccuracy ?? "—"}</strong><small>{a1Metrics.currentAccuracy === null ? "" : "%"}</small></div>
+        <div className="summary-card"><span>A-2 正答率</span><strong>{a2Metrics.currentAccuracy ?? "—"}</strong><small>{a2Metrics.currentAccuracy === null ? "" : "%"}</small></div>
         <div className="summary-card"><span>累計回答</span><strong>{attempts.length}</strong><small>回</small></div>
       </section>
 
       <section className="panel review-dashboard">
         <div className="panel-heading">
-          <div>
-            <h2>年度横断・弱点復習</h2>
-            <p className="muted-text">2025〜2021の150問から、最新の解答履歴を基に優先問題を選びます。</p>
-          </div>
-          <span className="review-count">要復習 {officialReviewIds.size}問</span>
+          <div><h2>A-2 年度横断・弱点復習</h2><p className="muted-text">ITストラテジスト固有の2025〜2021年125問から、優先問題を選びます。</p></div>
+          <span className="review-count">要復習 {a2Metrics.reviewIds.size}問</span>
         </div>
-        <button className="recommend-card" onClick={() => startOfficialReview("recommended")}>
-          <span className="recommend-icon">10</span>
-          <span><strong>今日のおすすめ10問</strong><small>誤答 → 知らなかった → 迷った → 弱点分野の順に優先</small></span>
-          <span>→</span>
+        <button className="recommend-card" onClick={() => startOfficialReview("A-2", "recommended")}>
+          <span className="recommend-icon">10</span><span><strong>A-2 今日のおすすめ10問</strong><small>誤答 → 知らなかった → 迷った → 弱点分野の順に優先</small></span><span>→</span>
         </button>
         <div className="review-filter-grid">
-          <button onClick={() => startOfficialReview("wrong")}><strong>{officialWrongCount}</strong><span>間違えた</span></button>
-          <button onClick={() => startOfficialReview("unsure")}><strong>{officialUnsureCount}</strong><span>迷った</span></button>
-          <button onClick={() => startOfficialReview("unknown")}><strong>{officialUnknownCount}</strong><span>知らなかった</span></button>
+          <button onClick={() => startOfficialReview("A-2", "wrong")}><strong>{a2Metrics.wrongCount}</strong><span>間違えた</span></button>
+          <button onClick={() => startOfficialReview("A-2", "unsure")}><strong>{a2Metrics.unsureCount}</strong><span>迷った</span></button>
+          <button onClick={() => startOfficialReview("A-2", "unknown")}><strong>{a2Metrics.unknownCount}</strong><span>知らなかった</span></button>
         </div>
-        {officialWeakCategories.length > 0 && (
-          <div className="review-weak-row">
-            <span>弱点TOP3</span>
-            {officialWeakCategories.map((item) => (
-              <button key={item.name} onClick={() => startOfficialReview("category", item.name)}>{item.name} <strong>{item.accuracy}%</strong></button>
-            ))}
-          </div>
-        )}
+        {a2Metrics.weakCategories.length > 0 && <div className="review-weak-row"><span>弱点TOP3</span>{a2Metrics.weakCategories.map((item) => <button key={item.name} onClick={() => startOfficialReview("A-2", "category", item.name)}>{item.name} <strong>{item.accuracy}%</strong></button>)}</div>}
       </section>
 
       <section className="panel">
-        <h2>今日の学習</h2>
+        <h2>A-2 公式過去問</h2>
+        <p className="muted-text">まずこちらを優先。各年度25問、5年分で125問です。</p>
         <div className="action-grid">
-          <button className="action primary-action" onClick={() => startQuiz("random")}>
-            <span className="action-icon">▶</span><span><strong>ランダム10問</strong><small>まず現在地を確認</small></span>
-          </button>
-          {OFFICIAL_YEARS.map((year) => {
-            const set = officialA1Sets[year];
-            return (
-              <button key={year} className="action official-action" onClick={() => startOfficialExam(year)}>
-                <span className="action-icon">{set.shortLabel}</span><span><strong>{year}公式A-1 30問</strong><small>IPA公式PDF＋クラウド採点</small></span>
-              </button>
-            );
-          })}
-          <button className="action" onClick={() => startQuiz("mock")}>
-            <span className="action-icon">30</span><span><strong>A-1模擬試験</strong><small>最大30問・本番想定</small></span>
-          </button>
-          <button className="action" onClick={() => startQuiz("weak")}>
-            <span className="action-icon">↻</span><span><strong>苦手を優先</strong><small>誤答・低正答率・知らなかった</small></span>
-          </button>
-          <button className="action" onClick={() => startQuiz("wrong")}>
-            <span className="action-icon">×</span><span><strong>誤答だけ</strong><small>{localWrongQuestionIds.size}問が対象</small></span>
-          </button>
+          {OFFICIAL_YEARS.map((year) => { const set = officialA2Sets[year]; return (
+            <button key={`a2-${year}`} className="action official-action" onClick={() => startOfficialExam("A-2", year)}>
+              <span className="action-icon">{set.shortLabel}</span><span><strong>{year}公式A-2 25問</strong><small>IPA公式PDF＋クラウド採点</small></span>
+            </button>
+          ); })}
+        </div>
+      </section>
+
+      <section className="panel review-dashboard">
+        <div className="panel-heading">
+          <div><h2>A-1 年度横断・弱点復習</h2><p className="muted-text">高度試験共通の2025〜2021年150問から、優先問題を選びます。</p></div>
+          <span className="review-count">要復習 {a1Metrics.reviewIds.size}問</span>
+        </div>
+        <button className="recommend-card" onClick={() => startOfficialReview("A-1", "recommended")}>
+          <span className="recommend-icon">10</span><span><strong>A-1 今日のおすすめ10問</strong><small>誤答 → 知らなかった → 迷った → 弱点分野の順に優先</small></span><span>→</span>
+        </button>
+        <div className="review-filter-grid">
+          <button onClick={() => startOfficialReview("A-1", "wrong")}><strong>{a1Metrics.wrongCount}</strong><span>間違えた</span></button>
+          <button onClick={() => startOfficialReview("A-1", "unsure")}><strong>{a1Metrics.unsureCount}</strong><span>迷った</span></button>
+          <button onClick={() => startOfficialReview("A-1", "unknown")}><strong>{a1Metrics.unknownCount}</strong><span>知らなかった</span></button>
+        </div>
+        {a1Metrics.weakCategories.length > 0 && <div className="review-weak-row"><span>弱点TOP3</span>{a1Metrics.weakCategories.map((item) => <button key={item.name} onClick={() => startOfficialReview("A-1", "category", item.name)}>{item.name} <strong>{item.accuracy}%</strong></button>)}</div>}
+      </section>
+
+      <section className="panel">
+        <h2>A-1 公式過去問・補助演習</h2>
+        <div className="action-grid">
+          <button className="action primary-action" onClick={() => startQuiz("random")}><span className="action-icon">▶</span><span><strong>ランダム10問</strong><small>オリジナル問題で現在地を確認</small></span></button>
+          {OFFICIAL_YEARS.map((year) => { const set = officialA1Sets[year]; return (
+            <button key={`a1-${year}`} className="action official-action" onClick={() => startOfficialExam("A-1", year)}>
+              <span className="action-icon">{set.shortLabel}</span><span><strong>{year}公式A-1 30問</strong><small>IPA公式PDF＋クラウド採点</small></span>
+            </button>
+          ); })}
+          <button className="action" onClick={() => startQuiz("mock")}><span className="action-icon">30</span><span><strong>A-1模擬試験</strong><small>最大30問・本番想定</small></span></button>
+          <button className="action" onClick={() => startQuiz("weak")}><span className="action-icon">↻</span><span><strong>苦手を優先</strong><small>誤答・低正答率・知らなかった</small></span></button>
+          <button className="action" onClick={() => startQuiz("wrong")}><span className="action-icon">×</span><span><strong>誤答だけ</strong><small>{localWrongQuestionIds.size}問が対象</small></span></button>
         </div>
       </section>
 
@@ -1113,7 +1132,7 @@ export default function Home() {
       </section>
 
       <section className="panel compact">
-        <div className="panel-heading"><div><h2>データ</h2><p className="muted-text">標準{seedQuestions.length}問 ＋ 追加{customQuestions.length}問 ＋ 公式過去問150問 ／ 年度横断復習対応・Supabase同期</p></div><button className="secondary small" onClick={() => setMode("manage")}>問題を追加</button></div>
+        <div className="panel-heading"><div><h2>データ</h2><p className="muted-text">標準{seedQuestions.length}問 ＋ 追加{customQuestions.length}問 ＋ 公式過去問275問（A-1 150＋A-2 125） ／ 年度横断復習対応・Supabase同期</p></div><button className="secondary small" onClick={() => setMode("manage")}>問題を追加</button></div>
       </section>
 
       <footer>
