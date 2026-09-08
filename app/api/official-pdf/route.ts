@@ -2,6 +2,8 @@ const IPA_PDF_URLS: Record<string, string> = {
   "2025": "https://www.ipa.go.jp/shiken/mondai-kaiotu/nl10bi0000009lh8-att/2025r07h_koudo_am1_qs.pdf",
   "2024": "https://www.ipa.go.jp/shiken/mondai-kaiotu/m42obm000000afqx-att/2024r06h_koudo_am1_qs.pdf",
   "2023": "https://www.ipa.go.jp/shiken/mondai-kaiotu/ps6vr70000010d6y-att/2023r05h_koudo_am1_qs.pdf",
+  "2022": "https://www.ipa.go.jp/shiken/mondai-kaiotu/gmcbt80000009sgk-att/2022r04h_koudo_am1_qs.pdf",
+  "2021": "https://www.ipa.go.jp/shiken/mondai-kaiotu/gmcbt8000000d5ru-att/2021r03h_koudo_am1_qs.pdf",
 };
 
 function copyHeader(source: Headers, target: Headers, name: string) {

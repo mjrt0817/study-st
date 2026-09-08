@@ -23,7 +23,7 @@ type Mode = "home" | "quiz" | "result" | "stats" | "manage" | "official" | "offi
 type QuizKind = "random" | "mock" | "weak" | "wrong" | "category";
 type ReviewKind = "recommended" | "wrong" | "unsure" | "unknown" | "category";
 type SyncState = "idle" | "loading" | "synced" | "error";
-const OFFICIAL_YEARS: OfficialA1Year[] = ["2025", "2024", "2023"];
+const OFFICIAL_YEARS: OfficialA1Year[] = ["2025", "2024", "2023", "2022", "2021"];
 
 const ATTEMPTS_KEY = "st-a1-attempts-v2";
 const BOOKMARKS_KEY = "st-a1-bookmarks-v2";
@@ -989,7 +989,7 @@ export default function Home() {
             <div><strong>{customQuestions.length}</strong><span>追加問題</span></div>
             <div><strong>{allQuestions.length}</strong><span>アプリ内合計</span></div>
           </div>
-          <p className="muted-text">別途、2025・2024・2023年度春期の公式A-1を各30問、「公式過去問モード」で利用できます（問題本文・図表はIPA公式PDFを参照）。</p>
+          <p className="muted-text">別途、2025・2024・2023・2022・2021年度春期の公式A-1を各30問、「公式過去問モード」で利用できます（問題本文・図表はIPA公式PDFを参照）。</p>
           <a className="link-card" href="https://www.ipa.go.jp/shiken/mondai-kaiotu/index.html" target="_blank" rel="noreferrer">
             IPA公式 過去問題ページを開く ↗
           </a>
@@ -1027,8 +1027,8 @@ export default function Home() {
       {message && <div className="notice" onClick={() => setMessage("")}>{message}</div>}
 
       <section className="summary-grid review-summary-grid">
-        <div className="summary-card"><span>公式90問 回答済み</span><strong>{officialAnsweredCount}</strong><small>/ 90問</small></div>
-        <div className="summary-card"><span>直近3年 正答率</span><strong>{officialCurrentAccuracy ?? "—"}</strong><small>{officialCurrentAccuracy === null ? "" : "%"}</small></div>
+        <div className="summary-card"><span>公式150問 回答済み</span><strong>{officialAnsweredCount}</strong><small>/ 150問</small></div>
+        <div className="summary-card"><span>直近5年 正答率</span><strong>{officialCurrentAccuracy ?? "—"}</strong><small>{officialCurrentAccuracy === null ? "" : "%"}</small></div>
         <div className="summary-card"><span>要復習</span><strong>{officialReviewIds.size}</strong><small>問</small></div>
         <div className="summary-card"><span>累計回答</span><strong>{attempts.length}</strong><small>回</small></div>
       </section>
@@ -1037,7 +1037,7 @@ export default function Home() {
         <div className="panel-heading">
           <div>
             <h2>年度横断・弱点復習</h2>
-            <p className="muted-text">2025・2024・2023の90問から、最新の解答履歴を基に優先問題を選びます。</p>
+            <p className="muted-text">2025〜2021の150問から、最新の解答履歴を基に優先問題を選びます。</p>
           </div>
           <span className="review-count">要復習 {officialReviewIds.size}問</span>
         </div>
@@ -1113,12 +1113,12 @@ export default function Home() {
       </section>
 
       <section className="panel compact">
-        <div className="panel-heading"><div><h2>データ</h2><p className="muted-text">標準{seedQuestions.length}問 ＋ 追加{customQuestions.length}問 ＋ 公式過去問90問 ／ 年度横断復習対応・Supabase同期</p></div><button className="secondary small" onClick={() => setMode("manage")}>問題を追加</button></div>
+        <div className="panel-heading"><div><h2>データ</h2><p className="muted-text">標準{seedQuestions.length}問 ＋ 追加{customQuestions.length}問 ＋ 公式過去問150問 ／ 年度横断復習対応・Supabase同期</p></div><button className="secondary small" onClick={() => setMode("manage")}>問題を追加</button></div>
       </section>
 
       <footer>
         <button className="text-button" onClick={() => void resetProgress()}>学習履歴をリセット</button>
-        <p>標準問題はオリジナル問題。2025・2024・2023年度公式過去問はIPA公式PDFを参照して解答します。</p>
+        <p>標準問題はオリジナル問題。2025〜2021年度公式過去問はIPA公式PDFを参照して解答します。</p>
       </footer>
     </main>
   );
