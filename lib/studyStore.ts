@@ -64,6 +64,23 @@ export async function saveAttempt(userId: string, attempt: Attempt) {
   if (error) throw error;
 }
 
+
+export async function saveAttempts(userId: string, attempts: Attempt[]) {
+  if (!attempts.length) return;
+  const { error } = await client().from("study_attempts").upsert(
+    attempts.map((attempt) => ({
+      user_id: userId,
+      client_id: attempt.clientId,
+      question_id: attempt.questionId,
+      correct: attempt.correct,
+      confidence: attempt.confidence,
+      answered_at: attempt.answeredAt,
+    })),
+    { onConflict: "user_id,client_id" },
+  );
+  if (error) throw error;
+}
+
 export async function saveBookmark(userId: string, questionId: string, enabled: boolean) {
   const db = client();
   if (enabled) {
