@@ -47,11 +47,12 @@ button { cursor: pointer; }
 .action small { color: var(--muted); margin-top: 4px; }
 .primary-action small { color: rgba(255,255,255,.8); }
 .category-list { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
-.category-list button, .weak-list button { border: 1px solid var(--line); background: #fbfcfe; border-radius: 12px; padding: 12px 14px; display: flex; justify-content: space-between; align-items: center; color: var(--text); }
+.category-list button, .weak-list button, .weak-list .weak-static { border: 1px solid var(--line); background: #fbfcfe; border-radius: 12px; padding: 12px 14px; display: flex; justify-content: space-between; align-items: center; color: var(--text); }
 .category-list button:hover, .weak-list button:hover { border-color: #9ebce0; }
 .category-list small { color: var(--muted); }
 .weak-list { display: grid; gap: 8px; }
 .weak-list strong { color: var(--danger); }
+.weak-list .weak-static small { color: var(--muted); font-size: 11px; margin-left: 8px; }
 .topbar { display: flex; justify-content: space-between; align-items: center; min-height: 52px; gap: 12px; }
 .section-header h1 { font-size: 21px; margin: 0; }
 .text-button { border: 0; background: transparent; color: var(--primary); padding: 8px 4px; font-weight: 700; }

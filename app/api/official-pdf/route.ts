@@ -1,4 +1,8 @@
-const IPA_PDF_URL = "https://www.ipa.go.jp/shiken/mondai-kaiotu/nl10bi0000009lh8-att/2025r07h_koudo_am1_qs.pdf";
+const IPA_PDF_URLS: Record<string, string> = {
+  "2025": "https://www.ipa.go.jp/shiken/mondai-kaiotu/nl10bi0000009lh8-att/2025r07h_koudo_am1_qs.pdf",
+  "2024": "https://www.ipa.go.jp/shiken/mondai-kaiotu/m42obm000000afqx-att/2024r06h_koudo_am1_qs.pdf",
+  "2023": "https://www.ipa.go.jp/shiken/mondai-kaiotu/ps6vr70000010d6y-att/2023r05h_koudo_am1_qs.pdf",
+};
 
 function copyHeader(source: Headers, target: Headers, name: string) {
   const value = source.get(name);
@@ -6,12 +10,19 @@ function copyHeader(source: Headers, target: Headers, name: string) {
 }
 
 export async function GET(request: Request) {
+  const requestUrl = new URL(request.url);
+  const year = requestUrl.searchParams.get("year") || "2025";
+  const ipaPdfUrl = IPA_PDF_URLS[year];
+  if (!ipaPdfUrl) {
+    return new Response("指定された年度の公式PDFは登録されていません。", { status: 400 });
+  }
+
   const range = request.headers.get("range");
   const upstreamHeaders = new Headers();
   if (range) upstreamHeaders.set("range", range);
 
   try {
-    const upstream = await fetch(IPA_PDF_URL, {
+    const upstream = await fetch(ipaPdfUrl, {
       headers: upstreamHeaders,
       cache: range ? "no-store" : "force-cache",
       ...(range ? {} : { next: { revalidate: 86400 } }),
@@ -30,7 +41,7 @@ export async function GET(request: Request) {
     copyHeader(upstream.headers, headers, "last-modified");
 
     headers.set("content-type", upstream.headers.get("content-type") || "application/pdf");
-    headers.set("content-disposition", 'inline; filename="ipa-2025-a1.pdf"');
+    headers.set("content-disposition", `inline; filename="ipa-${year}-a1.pdf"`);
     headers.set("x-content-type-options", "nosniff");
     headers.set("cache-control", range
       ? "private, no-store"

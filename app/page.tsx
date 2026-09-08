@@ -3,7 +3,8 @@
 import { ChangeEvent, useCallback, useEffect, useMemo, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { Question, seedQuestions } from "../data/questions";
-import { OFFICIAL_A1_2025_ANSWER_PDF, OFFICIAL_A1_2025_PDF, officialA1Questions2025 } from "../data/officialA1";
+import type { OfficialA1Year } from "../data/officialA1";
+import { officialA1AllQuestions, officialA1Sets } from "../data/officialA1";
 import { supabase, supabaseConfigured } from "../lib/supabase";
 import {
   Attempt,
@@ -21,6 +22,7 @@ import {
 type Mode = "home" | "quiz" | "result" | "stats" | "manage" | "official" | "officialResult";
 type QuizKind = "random" | "mock" | "weak" | "wrong" | "category";
 type SyncState = "idle" | "loading" | "synced" | "error";
+const OFFICIAL_YEARS: OfficialA1Year[] = ["2025", "2024", "2023"];
 
 const ATTEMPTS_KEY = "st-a1-attempts-v2";
 const BOOKMARKS_KEY = "st-a1-bookmarks-v2";
@@ -129,6 +131,7 @@ export default function Home() {
   const [confidence, setConfidence] = useState<Confidence>("unsure");
   const [sessionAnswers, setSessionAnswers] = useState<{ id: string; correct: boolean }[]>([]);
   const [message, setMessage] = useState("");
+  const [officialYear, setOfficialYear] = useState<OfficialA1Year>("2025");
   const [officialIndex, setOfficialIndex] = useState(0);
   const [officialSelections, setOfficialSelections] = useState<Record<string, { selected: number; confidence: Confidence }>>({});
 
@@ -195,7 +198,9 @@ export default function Home() {
 
   const allQuestions = useMemo(() => [...seedQuestions, ...customQuestions], [customQuestions]);
   const categories = useMemo(() => Array.from(new Set(allQuestions.map((q) => q.category))).sort(), [allQuestions]);
-  const statsQuestions = useMemo(() => [...allQuestions, ...officialA1Questions2025], [allQuestions]);
+  const statsQuestions = useMemo(() => [...allQuestions, ...officialA1AllQuestions], [allQuestions]);
+  const currentOfficialSet = officialA1Sets[officialYear];
+  const currentOfficialQuestions = currentOfficialSet.questions;
   const statCategories = useMemo(() => Array.from(new Set(statsQuestions.map((q) => q.category))).sort(), [statsQuestions]);
 
   const totalAccuracy = accuracy(attempts);
@@ -205,6 +210,10 @@ export default function Home() {
     attempts.forEach((a) => latest.set(a.questionId, a));
     return new Set(Array.from(latest.values()).filter((a) => !a.correct).map((a) => a.questionId));
   }, [attempts]);
+  const localWrongQuestionIds = useMemo(() => {
+    const localIds = new Set(allQuestions.map((q) => q.id));
+    return new Set(Array.from(wrongQuestionIds).filter((id) => localIds.has(id)));
+  }, [allQuestions, wrongQuestionIds]);
 
   const weakCategories = useMemo(() => {
     const map = new Map<string, Attempt[]>();
@@ -326,7 +335,8 @@ export default function Home() {
     }
   }
 
-  function startOfficialExam() {
+  function startOfficialExam(year: OfficialA1Year = officialYear) {
+    setOfficialYear(year);
     setOfficialIndex(0);
     setOfficialSelections({});
     setMessage("");
@@ -350,7 +360,7 @@ export default function Home() {
 
   async function finishOfficialExam() {
     if (!user) return;
-    const unanswered = officialA1Questions2025.filter((q) => officialSelections[q.id] === undefined);
+    const unanswered = currentOfficialQuestions.filter((q) => officialSelections[q.id] === undefined);
     if (unanswered.length) {
       setMessage(`未回答が${unanswered.length}問あります。問${unanswered[0].number}から確認してください。`);
       setOfficialIndex(unanswered[0].number - 1);
@@ -358,7 +368,7 @@ export default function Home() {
     }
 
     const answeredAt = new Date().toISOString();
-    const newAttempts: Attempt[] = officialA1Questions2025.map((q) => ({
+    const newAttempts: Attempt[] = currentOfficialQuestions.map((q) => ({
       clientId: newClientId(),
       questionId: q.id,
       correct: officialSelections[q.id].selected === q.answer,
@@ -371,7 +381,7 @@ export default function Home() {
       await saveAttempts(user.id, newAttempts);
       setAttempts((current) => [...current, ...newAttempts]);
       setSyncState("synced");
-      setMessage("2025年度A-1公式過去問の結果をSupabaseへ保存しました。");
+      setMessage(`${officialYear}年度A-1公式過去問の結果をSupabaseへ保存しました。`);
       setMode("officialResult");
     } catch (error) {
       console.error(error);
@@ -561,29 +571,29 @@ export default function Home() {
   }
 
   if (mode === "official") {
-    const q = officialA1Questions2025[officialIndex];
+    const q = currentOfficialQuestions[officialIndex];
     const current = officialSelections[q.id];
     const answeredCount = Object.keys(officialSelections).length;
-    const pdfSrc = `/api/official-pdf#page=${q.pdfPage}&view=FitH`;
+    const pdfSrc = `/api/official-pdf?year=${officialYear}#page=${q.pdfPage}&view=FitH`;
 
     return (
       <main className="app-shell official-shell">
         <header className="topbar">
           <button className="text-button" onClick={() => setMode("home")}>← 終了</button>
-          <div className="progress-text">2025年度公式 A-1　回答済み {answeredCount} / 30</div>
-          <a className="secondary small pdf-link-button" href={OFFICIAL_A1_2025_PDF} target="_blank" rel="noreferrer">PDFを別タブで開く ↗</a>
+          <div className="progress-text">{officialYear}年度公式 A-1　回答済み {answeredCount} / 30</div>
+          <a className="secondary small pdf-link-button" href={currentOfficialSet.pdfUrl} target="_blank" rel="noreferrer">PDFを別タブで開く ↗</a>
         </header>
         <div className="progress-track"><div className="progress-fill" style={{ width: `${(answeredCount / 30) * 100}%` }} /></div>
         {message && <div className="notice" onClick={() => setMessage("")}>{message}</div>}
 
         <section className="official-layout">
           <div className="official-pdf-panel">
-            <iframe key={pdfSrc} src={pdfSrc} title={`IPA公式 2025年度 A-1 問${q.number}`} />
+            <iframe key={pdfSrc} src={pdfSrc} title={`IPA公式 ${officialYear}年度 A-1 問${q.number}`} />
             <p>PDFはアプリ経由で表示しています。表示されない場合は、上部の「PDFを別タブで開く」を利用してください。</p>
           </div>
           <aside className="official-answer-panel">
             <div className="official-question-heading">
-              <span>IPA 令和7年度春期 午前Ⅰ</span>
+              <span>IPA {currentOfficialSet.eraLabel} 午前Ⅰ</span>
               <strong>問{q.number}</strong>
             </div>
             <p className="muted-text">左の公式問題を確認して、解答だけこちらで記録します。採点は30問終了後にまとめて行います。</p>
@@ -609,7 +619,7 @@ export default function Home() {
             </div>
 
             <div className="official-nav">
-              {officialA1Questions2025.map((item, i) => (
+              {currentOfficialQuestions.map((item, i) => (
                 <button
                   key={item.id}
                   className={`${i === officialIndex ? "current" : ""} ${officialSelections[item.id] ? "answered" : ""}`}
@@ -638,7 +648,7 @@ export default function Home() {
   }
 
   if (mode === "officialResult") {
-    const results = officialA1Questions2025.map((q) => ({ q, answer: officialSelections[q.id], correct: officialSelections[q.id]?.selected === q.answer }));
+    const results = currentOfficialQuestions.map((q) => ({ q, answer: officialSelections[q.id], correct: officialSelections[q.id]?.selected === q.answer }));
     const correct = results.filter((x) => x.correct).length;
     const rate = Math.round((correct / 30) * 100);
     const wrong = results.filter((x) => !x.correct);
@@ -648,10 +658,10 @@ export default function Home() {
         <section className="result-card">
           <div className="result-ring"><strong>{rate}%</strong><span>{correct}/30 正解</span></div>
           <h1>{rate >= 75 ? "A-1はかなり良い位置です" : rate >= 60 ? "合格ライン付近です" : "弱点分野を優先して補強しましょう"}</h1>
-          <p>2025年度春期の公式30問です。結果はSupabaseへ保存済みです。</p>
+          <p>{officialYear}年度春期の公式30問です。結果はSupabaseへ保存済みです。</p>
           <div className="button-stack">
-            <button className="primary" onClick={startOfficialExam}>もう一度30問解く</button>
-            <a className="secondary result-link" href={OFFICIAL_A1_2025_ANSWER_PDF} target="_blank" rel="noreferrer">IPA公式解答を開く ↗</a>
+            <button className="primary" onClick={() => startOfficialExam(officialYear)}>もう一度30問解く</button>
+            <a className="secondary result-link" href={currentOfficialSet.answerPdfUrl} target="_blank" rel="noreferrer">IPA公式解答を開く ↗</a>
             <button className="text-button" onClick={() => setMode("home")}>ホームへ戻る</button>
           </div>
         </section>
@@ -664,7 +674,7 @@ export default function Home() {
                   <div className="review-title"><strong>問{q.number}</strong><span>{q.category} / {q.subcategory}</span></div>
                   <p>{q.learningPoint}</p>
                   <small>あなた：{answer ? ["ア","イ","ウ","エ"][answer.selected] : "未回答"} ／ 正解：{["ア","イ","ウ","エ"][q.answer]}</small>
-                  <a href={`${OFFICIAL_A1_2025_PDF}#page=${q.pdfPage}`} target="_blank" rel="noreferrer">公式PDFの該当ページを開く ↗</a>
+                  <a href={`${currentOfficialSet.pdfUrl}#page=${q.pdfPage}`} target="_blank" rel="noreferrer">公式PDFの該当ページを開く ↗</a>
                 </div>
               ))}
             </div>
@@ -735,7 +745,7 @@ export default function Home() {
             <div><strong>{customQuestions.length}</strong><span>追加問題</span></div>
             <div><strong>{allQuestions.length}</strong><span>アプリ内合計</span></div>
           </div>
-          <p className="muted-text">別途、2025年度春期の公式A-1 30問を「公式過去問モード」で利用できます（問題本文・図表はIPA公式PDFを参照）。</p>
+          <p className="muted-text">別途、2025・2024・2023年度春期の公式A-1を各30問、「公式過去問モード」で利用できます（問題本文・図表はIPA公式PDFを参照）。</p>
           <a className="link-card" href="https://www.ipa.go.jp/shiken/mondai-kaiotu/index.html" target="_blank" rel="noreferrer">
             IPA公式 過去問題ページを開く ↗
           </a>
@@ -784,9 +794,14 @@ export default function Home() {
           <button className="action primary-action" onClick={() => startQuiz("random")}>
             <span className="action-icon">▶</span><span><strong>ランダム10問</strong><small>まず現在地を確認</small></span>
           </button>
-          <button className="action official-action" onClick={startOfficialExam}>
-            <span className="action-icon">R7</span><span><strong>2025公式A-1 30問</strong><small>IPA公式PDF＋クラウド採点</small></span>
-          </button>
+          {OFFICIAL_YEARS.map((year) => {
+            const set = officialA1Sets[year];
+            return (
+              <button key={year} className="action official-action" onClick={() => startOfficialExam(year)}>
+                <span className="action-icon">{set.shortLabel}</span><span><strong>{year}公式A-1 30問</strong><small>IPA公式PDF＋クラウド採点</small></span>
+              </button>
+            );
+          })}
           <button className="action" onClick={() => startQuiz("mock")}>
             <span className="action-icon">30</span><span><strong>A-1模擬試験</strong><small>最大30問・本番想定</small></span>
           </button>
@@ -794,7 +809,7 @@ export default function Home() {
             <span className="action-icon">↻</span><span><strong>苦手を優先</strong><small>誤答・低正答率・知らなかった</small></span>
           </button>
           <button className="action" onClick={() => startQuiz("wrong")}>
-            <span className="action-icon">×</span><span><strong>誤答だけ</strong><small>{wrongQuestionIds.size}問が対象</small></span>
+            <span className="action-icon">×</span><span><strong>誤答だけ</strong><small>{localWrongQuestionIds.size}問が対象</small></span>
           </button>
         </div>
       </section>
@@ -813,7 +828,11 @@ export default function Home() {
         <h2>今の弱点</h2>
         {weakCategories.length ? (
           <div className="weak-list">
-            {weakCategories.map((w) => <button key={w.name} onClick={() => startQuiz("category", w.name)}><span>{w.name}</span><strong>{w.accuracy}%</strong></button>)}
+            {weakCategories.map((w) => allQuestions.some((q) => q.category === w.name) ? (
+              <button key={w.name} onClick={() => startQuiz("category", w.name)}><span>{w.name}</span><strong>{w.accuracy}%</strong></button>
+            ) : (
+              <div className="weak-static" key={w.name}><span>{w.name}</span><strong>{w.accuracy}%</strong><small>公式履歴</small></div>
+            ))}
           </div>
         ) : (
           <p className="muted-text">まだ判定できません。まず10問程度解くと、正答率の低い分野がここに表示されます。</p>
@@ -821,12 +840,12 @@ export default function Home() {
       </section>
 
       <section className="panel compact">
-        <div className="panel-heading"><div><h2>データ</h2><p className="muted-text">標準{seedQuestions.length}問 ＋ 追加{customQuestions.length}問 ＋ 公式過去問モード30問 ／ 学習履歴はSupabase同期</p></div><button className="secondary small" onClick={() => setMode("manage")}>問題を追加</button></div>
+        <div className="panel-heading"><div><h2>データ</h2><p className="muted-text">標準{seedQuestions.length}問 ＋ 追加{customQuestions.length}問 ＋ 公式過去問90問 ／ 学習履歴はSupabase同期</p></div><button className="secondary small" onClick={() => setMode("manage")}>問題を追加</button></div>
       </section>
 
       <footer>
         <button className="text-button" onClick={() => void resetProgress()}>学習履歴をリセット</button>
-        <p>標準問題はオリジナル問題。2025年度公式過去問はIPA公式PDFを参照して解答します。</p>
+        <p>標準問題はオリジナル問題。2025・2024・2023年度公式過去問はIPA公式PDFを参照して解答します。</p>
       </footer>
     </main>
   );

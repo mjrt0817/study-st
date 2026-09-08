@@ -1,7 +1,6 @@
 import type { Question } from "./questions";
 
-export const OFFICIAL_A1_2025_PDF = "https://www.ipa.go.jp/shiken/mondai-kaiotu/nl10bi0000009lh8-att/2025r07h_koudo_am1_qs.pdf";
-export const OFFICIAL_A1_2025_ANSWER_PDF = "https://www.ipa.go.jp/shiken/mondai-kaiotu/nl10bi0000009lh8-att/2025r07h_koudo_am1_ans.pdf";
+export type OfficialA1Year = "2025" | "2024" | "2023";
 
 export type OfficialA1Question = Question & {
   number: number;
@@ -9,8 +8,64 @@ export type OfficialA1Question = Question & {
   learningPoint: string;
 };
 
-const answers = [0,1,2,2,1,2,2,2,1,0,1,2,1,1,2,0,1,1,3,1,2,2,1,3,1,2,1,3,2,1];
-const meta: Array<[string, string, number, string]> = [
+export type OfficialA1Set = {
+  year: OfficialA1Year;
+  eraLabel: string;
+  shortLabel: string;
+  pdfUrl: string;
+  answerPdfUrl: string;
+  questions: OfficialA1Question[];
+};
+
+const source = {
+  2025: {
+    pdf: "https://www.ipa.go.jp/shiken/mondai-kaiotu/nl10bi0000009lh8-att/2025r07h_koudo_am1_qs.pdf",
+    answer: "https://www.ipa.go.jp/shiken/mondai-kaiotu/nl10bi0000009lh8-att/2025r07h_koudo_am1_ans.pdf",
+    era: "令和7年度春期",
+    short: "R7",
+  },
+  2024: {
+    pdf: "https://www.ipa.go.jp/shiken/mondai-kaiotu/m42obm000000afqx-att/2024r06h_koudo_am1_qs.pdf",
+    answer: "https://www.ipa.go.jp/shiken/mondai-kaiotu/m42obm000000afqx-att/2024r06h_koudo_am1_ans.pdf",
+    era: "令和6年度春期",
+    short: "R6",
+  },
+  2023: {
+    pdf: "https://www.ipa.go.jp/shiken/mondai-kaiotu/ps6vr70000010d6y-att/2023r05h_koudo_am1_qs.pdf",
+    answer: "https://www.ipa.go.jp/shiken/mondai-kaiotu/ps6vr70000010d6y-att/2023r05h_koudo_am1_ans.pdf",
+    era: "令和5年度春期",
+    short: "R5",
+  },
+} as const;
+
+type Meta = [string, string, number, string];
+
+function buildQuestions(year: OfficialA1Year, answers: number[], meta: Meta[]): OfficialA1Question[] {
+  const s = source[year];
+  return meta.map(([category, subcategory, pdfPage, learningPoint], index) => {
+    const number = index + 1;
+    return {
+      id: `a1-${year}-q${String(number).padStart(2, "0")}`,
+      exam: "A-1",
+      number,
+      pdfPage,
+      category,
+      subcategory,
+      question: `IPA公式 ${year}年度春期 午前Ⅰ 問${number}を公式PDFで確認して解答してください。`,
+      choices: ["ア", "イ", "ウ", "エ"],
+      answer: answers[index],
+      explanation: learningPoint,
+      learningPoint,
+      source: `IPA ${s.era} 高度試験 午前Ⅰ 問${number}`,
+      sourceUrl: s.pdf,
+      year,
+      official: true,
+    };
+  });
+}
+
+const answers2025 = [0,1,2,2,1,2,2,2,1,0,1,2,1,1,2,0,1,1,3,1,2,2,1,3,1,2,1,3,2,1];
+const meta2025: Meta[] = [
   ["基礎理論", "数値計算・二分法", 4, "二分法は探索区間を毎回半分にする。必要回数は、初期区間幅を目標精度まで2で何回割るかで考える。"],
   ["AI", "機械学習・過学習", 4, "過学習では訓練データだけに適合し過ぎる。データ拡張や正則化などで汎化性能を高める。"],
   ["アルゴリズム", "データ構造・スタック", 5, "スタックはLIFO。入力順を保ちながらpush/popする場合に作れる出力順を系統的に数える。"],
@@ -43,23 +98,107 @@ const meta: Array<[string, string, number, string]> = [
   ["法務", "著作権・生成AI", 16, "生成物が既存著作物と類似し、依拠性も認められる場合は著作権侵害となる可能性がある。"],
 ];
 
-export const officialA1Questions2025: OfficialA1Question[] = meta.map(([category, subcategory, pdfPage, learningPoint], index) => {
-  const number = index + 1;
-  return {
-    id: `a1-2025-q${String(number).padStart(2, "0")}`,
-    exam: "A-1",
-    number,
-    pdfPage,
-    category,
-    subcategory,
-    question: `IPA公式 2025年度春期 午前Ⅰ 問${number}を公式PDFで確認して解答してください。`,
-    choices: ["ア", "イ", "ウ", "エ"],
-    answer: answers[index],
-    explanation: learningPoint,
-    learningPoint,
-    source: `IPA 令和7年度春期 高度試験 午前Ⅰ 問${number}`,
-    sourceUrl: OFFICIAL_A1_2025_PDF,
+const answers2024 = [3,3,3,2,2,1,2,3,0,1,3,1,1,1,0,1,2,0,0,3,0,2,3,3,3,3,0,0,2,2];
+const meta2024: Meta[] = [
+  ["基礎理論", "待ち行列・M/M/1", 4, "M/M/1の平均待ち時間は利用率とサービス時間から求める。統合後は到着率が2倍になる点に注意する。"],
+  ["基礎理論", "誤り訂正・ハミング符号", 4, "ハミング符号はパリティ検査結果から誤り位置を特定する。mod 2計算を順に追う。"],
+  ["アルゴリズム", "二分木・再帰", 5, "再帰処理の呼出し順をそのまま追跡する。右部分木、左部分木、自ノードの順なら後置走査に近い。"],
+  ["コンピュータシステム", "量子コンピュータ", 6, "量子ゲート方式では量子ビットの重ね合わせなど量子力学的性質を利用して演算する。"],
+  ["システム構成", "信頼性設計", 6, "フェールセーフ、フェールソフト、フォールトトレランス、フォールトアボイダンスの定義を区別する。"],
+  ["ソフトウェア", "OS・デッドロック", 7, "デッドロックは複数プロセスが資源を相互に待つ循環待ちで発生する。資源取得順序を比較する。"],
+  ["コンピュータシステム", "論理回路", 7, "入力A・Bと出力Yのタイムチャートから真理値表を作り、XOR/XNOR/NAND/NORと照合する。"],
+  ["マルチメディア", "アウトラインフォント", 8, "アウトラインフォントは輪郭を数式等で表現するため、任意倍率の拡大縮小に向く。"],
+  ["データベース", "ストアドプロシージャ", 8, "ストアドプロシージャはDBサーバ側で処理をまとめて実行でき、クライアントとの通信量削減に有効。"],
+  ["ネットワーク", "CSMA/CD", 8, "CSMA/CDは媒体の空きを確認して送信し、衝突時はランダムな待ち時間後に再送する。"],
+  ["ネットワーク", "ビット誤り率", 9, "1パケットの総ビット数×ビット誤り率から誤り確率を近似し、送信個数を掛けて期待値を求める。"],
+  ["セキュリティ", "3-Dセキュア2.0", 9, "3-Dセキュア2.0は取引履歴や端末情報などを使ったリスクベース認証で、必要時に追加認証を行う。"],
+  ["セキュリティ", "公開鍵暗号", 9, "公開鍵暗号では各利用者が公開鍵と秘密鍵の1組を持つ。n人なら鍵は合計2n個。"],
+  ["セキュリティ", "PSIRT", 10, "PSIRTは自社製品・サービスの脆弱性情報を受け付け、調査・対策・情報公開を調整する組織。"],
+  ["ネットワーク", "IPv6・IPsec", 10, "ネットワーク層で暗号化・認証を行う代表技術はIPsec。SSHやTLSはより上位層で利用する。"],
+  ["開発技術", "オブジェクト指向", 10, "継承ではサブクラスがスーパークラスの操作を再定義できる。関連・集約などの関係も区別する。"],
+  ["開発技術", "テスト・ゴンペルツ曲線", 11, "バグ累積検出数は初期に増加し、テストが進むと収束するS字型のゴンペルツ曲線で表される。"],
+  ["プロジェクトマネジメント", "EVM", 12, "EVがPVより小さければ進捗遅延、EVがACより小さければコスト超過。CPIとSPIの意味を押さえる。"],
+  ["システム戦略", "期待金額価値", 13, "各案について状態別の利益（収入−投資額）に発生確率を掛け、合計して期待金額価値を比較する。"],
+  ["サービスマネジメント", "サービスレベル管理", 14, "サービスレベル管理ではサービスと目標値を決め、顧客との合意内容としてSLAなどを管理する。"],
+  ["システム監査", "システム監査基準", 14, "システム監査ではマネジメント、コントロール、ガバナンスを一定基準で総合的に点検・評価する。"],
+  ["システム監査", "IT業務処理統制", 14, "業務処理統制は入力・処理・出力の正確性や完全性を確保する個別業務上の統制。全般統制と区別する。"],
+  ["システム戦略", "SOA", 15, "SOAは業務機能を独立したサービスとして部品化し、疎結合で再利用・連携しやすくする考え方。"],
+  ["経営戦略", "EMS", 15, "EMSは生産設備を持つ企業が、他社から委託を受けて電子機器を製造するサービス。"],
+  ["システム企画", "コンティンジェンシープラン", 15, "コンティンジェンシープランはリスクが顕在化した場合に備え、対応手順や代替策を事前に定める。"],
+  ["経営戦略", "ファイブフォース分析", 16, "ファイブフォースは新規参入、売り手・買い手の交渉力、代替品、既存競合の5要因で業界構造を分析する。"],
+  ["経営戦略", "フィージビリティスタディ", 16, "フィージビリティスタディは新規事業・システム導入等の実現可能性を事前に調査・評価する。"],
+  ["システム戦略", "IoT・エッジコンピューティング", 17, "エッジコンピューティングは端末に近い場所で処理し、低遅延化や通信量削減を図る。"],
+  ["企業活動", "損益分岐点", 17, "損益分岐点売上高=固定費÷限界利益率。変動費と固定費を正しく分類して計算する。"],
+  ["法務", "不正競争防止法", 18, "他社表示に類似するドメイン名を不正な利益目的などで取得・使用する行為は不正競争となり得る。"],
+];
+
+const answers2023 = [0,0,0,1,1,3,1,2,3,2,1,0,1,3,3,2,3,3,1,1,1,0,0,3,0,1,1,2,0,3];
+const meta2023: Meta[] = [
+  ["基礎理論", "ビット演算", 3, "0〜255の循環カウンタは下位8ビットを残す考え方で表現できる。AND/ORのビット演算を2進数で確認する。"],
+  ["基礎理論", "統計・正規分布", 3, "正規分布は平均を中心に左右対称。標準偏差は分布の広がりを表すので、平均との差の目盛りを確認する。"],
+  ["アルゴリズム", "クイックソート", 4, "クイックソートは基準値で小さい群と大きい群に分割し、各群に同じ処理を再帰的に適用する。"],
+  ["コンピュータシステム", "CPU・CPI", 4, "1秒当たり命令数=クロック周波数÷CPI。式を変形してCPIを求める。"],
+  ["システム構成", "スケールイン", 4, "スケールインは水平分散しているサーバ台数を減らす操作。スケールアウトの逆。"],
+  ["アルゴリズム", "ハッシュ表", 5, "衝突がない理想的なハッシュ表では、データ数が増えても1件当たりの平均探索時間はほぼ一定。"],
+  ["コンピュータシステム", "論理回路・NAND", 5, "NANDだけでNOTやAND/ORを構成できる。ド・モルガンの法則で式を整理する。"],
+  ["マルチメディア", "コンピュータグラフィックス", 6, "ラジオシティ法は拡散反射面間の相互反射を考慮して輝度を求める。レイトレーシング等と区別する。"],
+  ["データベース", "UML・多重度", 6, "UMLの多重度は1つのインスタンスに対して関連先が何件存在できるかを条件から読み取る。"],
+  ["ネットワーク", "TCP/IP・カプセル化", 7, "送信時は上位からポート番号、IPアドレス、MACアドレスが各ヘッダに付与され、フレームとして送られる。"],
+  ["ネットワーク", "モバイル通信・ハンドオーバ", 7, "接続を維持したまま基地局を切り替える処理をハンドオーバという。"],
+  ["セキュリティ", "ボットネット・C&C", 7, "C&Cサーバは感染端末へ指令を送り、情報収集や攻撃活動を制御する。"],
+  ["セキュリティ", "デジタルフォレンジックス", 8, "デジタルフォレンジックスでは媒体を保全し、削除データやログなどを収集・分析して不正の証拠を確認する。"],
+  ["セキュリティ", "メール・SMTP-AUTH", 8, "サブミッションポート587ではSMTP-AUTHで送信者を認証し、第三者による不正中継を抑止する。"],
+  ["セキュリティ", "認証VLAN", 9, "認証VLANは利用者・端末の認証結果に応じて動的にVLANを割り当て、アクセス範囲を制御する。"],
+  ["開発技術", "モジュール結合度", 9, "必要なデータ項目だけを引数で渡すデータ結合は結合度が低い。共通域や外部宣言による共有は結合度が高い。"],
+  ["システム構成", "サーバプロビジョニング", 10, "プロビジョニングは構成をあらかじめ定義し、サーバや環境を自動的に準備・構築する。"],
+  ["プロジェクトマネジメント", "プロジェクト憲章", 10, "プロジェクト憲章はプロジェクトを正式に認可し、目的・責任者・権限などを明確にする文書。"],
+  ["プロジェクトマネジメント", "作業配分・進捗計算", 11, "工程別の期間比を使って残工程の日数を求める。プログラム開発は半分完了している点を反映する。"],
+  ["サービスマネジメント", "JIS Q 20000・レビュー", 11, "サービスレベルのレビューはあらかじめ定めた間隔で実施し、目標との適合状況を継続的に確認する。"],
+  ["システム監査", "予備調査", 12, "予備調査では文書やヒアリング等で業務内容・分掌・統制状況を把握し、本調査計画に生かす。"],
+  ["システム監査", "監査技法・インタビュー", 12, "インタビュー法は監査人が関係者へ直接質問し、口頭で回答を得る技法。"],
+  ["システム戦略", "ROI", 12, "ROIは投資によって生み出した利益を投資額で割り、投資効率を評価する指標。"],
+  ["システム企画", "要件トレーサビリティ", 13, "要求の根拠と成果物の対応関係を追跡できれば、変更時に品質要求までさかのぼって影響を確認できる。"],
+  ["システム企画", "RFI", 13, "RFIは候補ベンダに対して目的・業務概要を示し、製品・サービスや技術情報の提供を依頼する。RFPと区別する。"],
+  ["経営戦略", "バランススコアカード", 14, "戦略マップは財務、顧客、内部ビジネスプロセス、学習と成長の視点で目標の因果関係を表す。"],
+  ["システム戦略", "IoT・エネルギーハーベスティング", 14, "エネルギーハーベスティングは光、熱、振動、電磁波など環境中の微小エネルギーを電力へ変換する。"],
+  ["経営戦略", "アグリゲーションサービス", 15, "アグリゲーションサービスは分散した商品・機能へのアクセスをまとめ、比較や組合せをワンストップで提供する。"],
+  ["企業活動", "原価計算", 15, "製造原価には製品製造に直接・間接に必要な費用を含む。販売・一般管理費や異常損失等と区別する。"],
+  ["法務", "労働者派遣法", 15, "派遣元は派遣労働者の教育訓練機会の確保など、キャリア形成や福祉の増進に関する措置を講じる。"],
+];
+
+export const officialA1Questions2025 = buildQuestions("2025", answers2025, meta2025);
+export const officialA1Questions2024 = buildQuestions("2024", answers2024, meta2024);
+export const officialA1Questions2023 = buildQuestions("2023", answers2023, meta2023);
+
+export const officialA1Sets: Record<OfficialA1Year, OfficialA1Set> = {
+  2025: {
     year: "2025",
-    official: true,
-  };
-});
+    eraLabel: source[2025].era,
+    shortLabel: source[2025].short,
+    pdfUrl: source[2025].pdf,
+    answerPdfUrl: source[2025].answer,
+    questions: officialA1Questions2025,
+  },
+  2024: {
+    year: "2024",
+    eraLabel: source[2024].era,
+    shortLabel: source[2024].short,
+    pdfUrl: source[2024].pdf,
+    answerPdfUrl: source[2024].answer,
+    questions: officialA1Questions2024,
+  },
+  2023: {
+    year: "2023",
+    eraLabel: source[2023].era,
+    shortLabel: source[2023].short,
+    pdfUrl: source[2023].pdf,
+    answerPdfUrl: source[2023].answer,
+    questions: officialA1Questions2023,
+  },
+};
+
+export const officialA1AllQuestions = [
+  ...officialA1Questions2025,
+  ...officialA1Questions2024,
+  ...officialA1Questions2023,
+];
