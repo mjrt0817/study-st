@@ -158,3 +158,14 @@ footer p { margin: 5px 0; }
   .auth-card { padding: 28px 20px; }
   .user-bar { align-items: flex-start; }
 }
+
+/* V3 cloud sync */
+.user-actions { display: flex; align-items: center; justify-content: flex-end; gap: 7px; flex-wrap: wrap; }
+.sync-pill { display: inline-flex; align-items: center; gap: 4px; padding: 6px 9px; border-radius: 999px; font-size: 11px; font-weight: 800; background: #eef2f7; color: var(--muted); white-space: nowrap; }
+.sync-pill.synced { background: #e8f7ef; color: #17663e; }
+.sync-pill.loading { background: #eef5ff; color: var(--primary); }
+.sync-pill.error { background: var(--danger-soft); color: var(--danger); }
+@media (max-width: 640px) {
+  .user-bar { flex-direction: column; }
+  .user-actions { width: 100%; justify-content: flex-start; }
+}

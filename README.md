@@ -1,30 +1,70 @@
-# ST A-1 Trainer
-
-## V2.1 セキュリティ更新
-
-- Next.js を `15.5.2` から `15.5.24` へ更新
-- Vercel がブロックする既知の脆弱版を回避
-- Next.js 16 へのメジャーアップデートは行わず、互換性を優先して15系のMaintenance LTSを継続
-
-GitHub側で手動修正する場合は、`package.json` の次の行だけ変更しても構いません。
-
-```json
-"next": "15.5.24"
-```
-
-その後コミット・pushし、Vercelを再デプロイしてください。
-
+# ST A-1 Trainer V3
 
 ITストラテジスト 科目A-1の個人学習用Webアプリです。
 
-## V2の主な変更
+## V3の主な変更
 
-- Googleログイン（Supabase Auth）を追加
-- 未ログイン時は学習画面を表示しない
-- 学習履歴・ブックマーク・追加問題を `Supabase user.id` ごとに分離
-- 学習履歴自体は引き続きブラウザの localStorage に保存
+- Googleログイン必須（Supabase Auth）
+- 解答履歴をSupabase Databaseへ保存
+- ブックマークをSupabaseへ保存
+- 「自信あり / 迷った / 知らなかった」を解答履歴と一緒に保存
+- JSONで追加した問題もSupabaseへ保存
+- 同じGoogleアカウントならPC・スマホ間で進捗同期
+- V1/V2でlocalStorageに残っている旧学習データは、初回同期時にSupabaseへ自動移行
+- 移行成功後は旧学習データをlocalStorageから削除
+- RLSで本人の行だけ読み書き可能
 
-> 重要：現段階では端末間同期はしません。同じGoogleアカウントでも、別PC・スマホでは別の学習履歴になります。次段階でSupabase Databaseへ移行すれば同期できます。
+## 最初に必ず行うこと：DB作成
+
+Googleログインが既に動いていても、V3ではDatabase用テーブルが必要です。
+
+1. Supabase Dashboardを開く
+2. `SQL Editor` → `New query`
+3. このプロジェクトの `supabase/setup.sql` を全て貼り付ける
+4. `Run` を押す
+
+作成されるテーブル：
+
+- `study_attempts`
+- `study_bookmarks`
+- `study_custom_questions`
+
+3表ともRLSが有効になり、`auth.uid()` が一致する本人のデータだけSELECT/INSERT/UPDATE/DELETEできます。
+
+## 環境変数
+
+V2と同じ2つだけです。Secret Keyは使用しません。
+
+```env
+NEXT_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_YOUR_KEY
+```
+
+Vercelにも Project Settings → Environment Variables から同じ値を設定してください。
+
+## Google OAuth
+
+V2ですでにGoogleログインできている場合、変更不要です。
+
+新規設定の場合はSupabase AuthenticationでGoogle Providerを有効化し、Google Cloud側のOAuth ClientとSupabase側のRedirect URLを設定してください。
+
+## データ同期の動き
+
+ログイン直後：
+
+1. 旧localStorageデータを確認
+2. 存在すればSupabaseへupsert
+3. 移行成功後、旧localStorageデータを削除
+4. Supabaseから最新の学習履歴・ブックマーク・追加問題を読み込み
+
+学習中：
+
+- 回答するたび `study_attempts` に1行保存
+- ★ブックマーク操作を即時同期
+- JSON問題追加時に `study_custom_questions` へupsert
+- ホーム画面の「再同期」でクラウドの最新状態を再読込
+
+Supabaseへの保存に失敗した回答は「保存済み」と見なさず、画面上の履歴も元へ戻します。
 
 ## 学習機能
 
@@ -33,125 +73,36 @@ ITストラテジスト 科目A-1の個人学習用Webアプリです。
 - 分野指定出題
 - 誤答だけ再出題
 - 苦手優先出題（低正答率・誤答・「知らなかった」）
-- 「自信あり / 迷った / 知らなかった」の理解度記録
+- 理解度記録
 - ブックマーク
 - 分野別正答率
-- JSONによる問題追加
+- JSON問題追加
 
-## Googleログイン設定
-
-### 1. Supabaseプロジェクトを用意
-
-Supabaseで新規プロジェクトを作成するか、この学習アプリ専用のプロジェクトを用意します。
-
-### 2. Google OAuthを有効化
-
-Supabase Dashboard → Authentication → Providers → Google を開きます。
-
-そこに表示される Callback URL を控えます。一般的には次の形式です。
-
-```text
-https://<PROJECT_REF>.supabase.co/auth/v1/callback
-```
-
-### 3. Google Cloud側でOAuthクライアントを作成
-
-Google Auth Platform / Google Cloud Consoleで「Web application」のOAuth Clientを作成します。
-
-Authorized JavaScript origins 例：
-
-```text
-http://localhost:3000
-https://your-app.vercel.app
-```
-
-Authorized redirect URIs には、Supabase側に表示されたCallback URLを登録します。
-
-```text
-https://<PROJECT_REF>.supabase.co/auth/v1/callback
-```
-
-発行されたGoogle Client ID / Client SecretをSupabaseのGoogle Provider設定へ登録します。
-
-### 4. SupabaseのRedirect URLを設定
-
-Supabase Dashboard → Authentication → URL Configuration で設定します。
-
-Site URL（本番）：
-
-```text
-https://your-app.vercel.app
-```
-
-Redirect URLs：
-
-```text
-http://localhost:3000/**
-https://your-app.vercel.app/**
-```
-
-### 5. 環境変数を設定
-
-`.env.example` を `.env.local` にコピーします。
-
-```env
-NEXT_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_YOUR_KEY
-```
-
-Supabase DashboardのProject Settings / API KeysからURLとPublishable Keyを取得してください。
-
-Vercelへデプロイするときも、同じ2つを Project Settings → Environment Variables に登録します。
-
-## ローカル起動
+## デプロイ
 
 ```bash
 npm install
-npm run dev
+npm run build
 ```
 
-ブラウザで http://localhost:3000 を開きます。
-
-## Vercel
-
-GitHubへこのフォルダをpushし、VercelでImportします。
-その後、上記2つの環境変数をVercelへ登録して再デプロイしてください。
-
-## データ保存について
-
-V2ではログイン必須ですが、学習データはまだlocalStorageです。
-保存キーにSupabaseの `user.id` を含めているため、同一ブラウザでもGoogleアカウントごとに履歴が分離されます。
-
-次段階では以下をSupabase Databaseへ移す予定です。
-
-- 解答履歴
-- ブックマーク
-- 理解度
-- カスタム問題
-
-その際はRow Level Security (RLS)で `auth.uid()` の行だけ読み書きできるようにします。
+ビルド成功後、GitHubへpushするとVercel側で再デプロイされます。
 
 ## 問題データについて
 
-`data/questions.ts` の標準20問は、アプリ動作確認用に作成したオリジナル問題です。
+`data/questions.ts` の標準20問は動作確認用のオリジナル問題です。
 IPA公式過去問そのものはまだ同梱していません。
 
-IPA公式過去問を利用する場合は、年度・期・試験区分・時間区分・問番号等の出典を明記してください。
+公式過去問を追加する場合は、年度・期・試験区分・時間区分・問番号などの出典を明記してください。
 
-公式過去問一覧:
+公式過去問一覧：
 https://www.ipa.go.jp/shiken/mondai-kaiotu/index.html
 
-追加データ形式は `sample-question-template.json` を参照してください。
-
-## standalone版について
-
-`standalone/index.html` はV1のUI確認用です。Google認証がないため、本番運用には使用しないでください。
+追加形式は `sample-question-template.json` を参照してください。
 
 ## 次の開発候補
 
 1. IPA公式A-1過去問データ投入
-2. Supabase Databaseへ学習履歴を同期
-3. 間隔反復（翌日/3日後/7日後）
-4. A-2追加
-5. B-1記述・B-2論文管理
-6. 社労士問題データへの横展開
+2. 間隔反復（翌日 / 3日後 / 7日後）
+3. A-2追加
+4. B-1記述・B-2論文管理
+5. 社労士問題データへの横展開

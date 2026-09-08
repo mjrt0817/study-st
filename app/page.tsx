@@ -1,20 +1,24 @@
 "use client";
 
-import { ChangeEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, useCallback, useEffect, useMemo, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { Question, seedQuestions } from "../data/questions";
 import { supabase, supabaseConfigured } from "../lib/supabase";
-
-type Confidence = "confident" | "unsure" | "unknown";
-type Attempt = {
-  questionId: string;
-  correct: boolean;
-  confidence: Confidence;
-  answeredAt: string;
-};
+import {
+  Attempt,
+  Confidence,
+  deleteAllCustomQuestions,
+  loadCloudStudyData,
+  migrateLocalStudyData,
+  resetCloudProgress,
+  saveAttempt,
+  saveBookmark,
+  upsertCustomQuestions,
+} from "../lib/studyStore";
 
 type Mode = "home" | "quiz" | "result" | "stats" | "manage";
 type QuizKind = "random" | "mock" | "weak" | "wrong" | "category";
+type SyncState = "idle" | "loading" | "synced" | "error";
 
 const ATTEMPTS_KEY = "st-a1-attempts-v2";
 const BOOKMARKS_KEY = "st-a1-bookmarks-v2";
@@ -36,9 +40,83 @@ function accuracy(items: Attempt[]) {
   return Math.round((items.filter((x) => x.correct).length / items.length) * 100);
 }
 
+function safeParseArray<T>(value: string | null): T[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function newClientId() {
+  return crypto.randomUUID();
+}
+
+function normalizeLocalAttempts(raw: Array<Partial<Attempt> & { questionId?: string }>): Attempt[] {
+  return raw
+    .filter((item) => item.questionId && typeof item.correct === "boolean" && item.answeredAt)
+    .map((item) => ({
+      clientId: item.clientId || newClientId(),
+      questionId: item.questionId!,
+      correct: Boolean(item.correct),
+      confidence: (item.confidence === "confident" || item.confidence === "unknown" ? item.confidence : "unsure") as Confidence,
+      answeredAt: item.answeredAt!,
+    }));
+}
+
+function readLocalMigrationData(userId: string) {
+  const attemptsKey = storageKey(ATTEMPTS_KEY, userId);
+  const bookmarksKey = storageKey(BOOKMARKS_KEY, userId);
+  const customKey = storageKey(CUSTOM_KEY, userId);
+
+  const namespacedAttempts = safeParseArray<Partial<Attempt>>(localStorage.getItem(attemptsKey));
+  const legacyAttempts = namespacedAttempts.length ? [] : safeParseArray<Partial<Attempt>>(localStorage.getItem(LEGACY_ATTEMPTS_KEY));
+  const attempts = normalizeLocalAttempts([...namespacedAttempts, ...legacyAttempts]);
+
+  // clientIdを付与した状態で一時保存。通信失敗後の再試行でも同じ行にupsertできるようにする。
+  if (attempts.length) localStorage.setItem(attemptsKey, JSON.stringify(attempts));
+
+  const namespacedBookmarks = safeParseArray<string>(localStorage.getItem(bookmarksKey));
+  const bookmarks = namespacedBookmarks.length
+    ? namespacedBookmarks
+    : safeParseArray<string>(localStorage.getItem(LEGACY_BOOKMARKS_KEY));
+
+  const namespacedCustom = safeParseArray<Question>(localStorage.getItem(customKey));
+  const customQuestions = namespacedCustom.length
+    ? namespacedCustom
+    : safeParseArray<Question>(localStorage.getItem(LEGACY_CUSTOM_KEY));
+
+  return { attempts, bookmarks: Array.from(new Set(bookmarks)), customQuestions };
+}
+
+function clearMigratedLocalData(userId: string) {
+  localStorage.removeItem(storageKey(ATTEMPTS_KEY, userId));
+  localStorage.removeItem(storageKey(BOOKMARKS_KEY, userId));
+  localStorage.removeItem(storageKey(CUSTOM_KEY, userId));
+  localStorage.removeItem(LEGACY_ATTEMPTS_KEY);
+  localStorage.removeItem(LEGACY_BOOKMARKS_KEY);
+  localStorage.removeItem(LEGACY_CUSTOM_KEY);
+}
+
+function dbSetupHint(error: unknown) {
+  const message = error instanceof Error
+    ? error.message
+    : typeof error === "object" && error && "message" in error
+      ? String((error as { message?: unknown }).message ?? "")
+      : String(error ?? "");
+  if (message.includes("study_attempts") || message.includes("relation") || message.includes("schema cache")) {
+    return "Supabaseの学習テーブルが未作成の可能性があります。supabase/setup.sql をSQL Editorで実行してください。";
+  }
+  return `Supabase同期に失敗しました：${message || "接続状態を確認してください。"}`;
+}
+
 export default function Home() {
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [dataLoading, setDataLoading] = useState(false);
+  const [syncState, setSyncState] = useState<SyncState>("idle");
   const [mode, setMode] = useState<Mode>("home");
   const [attempts, setAttempts] = useState<Attempt[]>([]);
   const [bookmarks, setBookmarks] = useState<string[]>([]);
@@ -48,7 +126,6 @@ export default function Home() {
   const [selected, setSelected] = useState<number | null>(null);
   const [confidence, setConfidence] = useState<Confidence>("unsure");
   const [sessionAnswers, setSessionAnswers] = useState<{ id: string; correct: boolean }[]>([]);
-  const [category, setCategory] = useState<string>("");
   const [message, setMessage] = useState("");
 
   useEffect(() => {
@@ -70,39 +147,47 @@ export default function Home() {
     return () => listener.subscription.unsubscribe();
   }, []);
 
+  const syncFromCloud = useCallback(async (currentUser: User, announce = false) => {
+    setDataLoading(true);
+    setSyncState("loading");
+    try {
+      const local = readLocalMigrationData(currentUser.id);
+      const hasLocal = Boolean(local.attempts.length || local.bookmarks.length || local.customQuestions.length);
+
+      if (hasLocal) {
+        await migrateLocalStudyData(currentUser.id, local.attempts, local.bookmarks, local.customQuestions);
+        clearMigratedLocalData(currentUser.id);
+      }
+
+      const cloud = await loadCloudStudyData();
+      setAttempts(cloud.attempts);
+      setBookmarks(cloud.bookmarks);
+      setCustomQuestions(cloud.customQuestions);
+      setSyncState("synced");
+      if (hasLocal) setMessage("この端末の旧学習データをSupabaseへ移行しました。");
+      else if (announce) setMessage("Supabaseから最新の学習履歴を読み込みました。");
+    } catch (error) {
+      console.error(error);
+      setAttempts([]);
+      setBookmarks([]);
+      setCustomQuestions([]);
+      setSyncState("error");
+      setMessage(dbSetupHint(error));
+    } finally {
+      setDataLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (!user) {
       setAttempts([]);
       setBookmarks([]);
       setCustomQuestions([]);
+      setSyncState("idle");
       return;
     }
-
-    try {
-      const attemptsKey = storageKey(ATTEMPTS_KEY, user.id);
-      const bookmarksKey = storageKey(BOOKMARKS_KEY, user.id);
-      const customKey = storageKey(CUSTOM_KEY, user.id);
-
-      // V1を同じブラウザで使っていた場合は、初回ログイン時だけ現在のGoogleアカウントへ引き継ぐ。
-      if (!localStorage.getItem(attemptsKey) && localStorage.getItem(LEGACY_ATTEMPTS_KEY)) {
-        localStorage.setItem(attemptsKey, localStorage.getItem(LEGACY_ATTEMPTS_KEY)!);
-      }
-      if (!localStorage.getItem(bookmarksKey) && localStorage.getItem(LEGACY_BOOKMARKS_KEY)) {
-        localStorage.setItem(bookmarksKey, localStorage.getItem(LEGACY_BOOKMARKS_KEY)!);
-      }
-      if (!localStorage.getItem(customKey) && localStorage.getItem(LEGACY_CUSTOM_KEY)) {
-        localStorage.setItem(customKey, localStorage.getItem(LEGACY_CUSTOM_KEY)!);
-      }
-
-      setAttempts(JSON.parse(localStorage.getItem(attemptsKey) || "[]"));
-      setBookmarks(JSON.parse(localStorage.getItem(bookmarksKey) || "[]"));
-      setCustomQuestions(JSON.parse(localStorage.getItem(customKey) || "[]"));
-    } catch {
-      setAttempts([]);
-      setBookmarks([]);
-      setCustomQuestions([]);
-    }
-  }, [user]);
+    void syncFromCloud(user);
+  }, [user, syncFromCloud]);
 
   const allQuestions = useMemo(() => [...seedQuestions, ...customQuestions], [customQuestions]);
   const categories = useMemo(() => Array.from(new Set(allQuestions.map((q) => q.category))).sort(), [allQuestions]);
@@ -134,9 +219,7 @@ export default function Home() {
     setMessage("");
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: {
-        redirectTo: window.location.origin,
-      },
+      options: { redirectTo: window.location.origin },
     });
     if (error) setMessage(`Googleログインに失敗しました：${error.message}`);
   }
@@ -149,6 +232,11 @@ export default function Home() {
   }
 
   function startQuiz(kind: QuizKind, selectedCategory?: string) {
+    if (syncState === "error") {
+      setMessage("Supabase同期を直してから学習を開始してください。学習履歴が保存されない状態での出題は停止しています。");
+      return;
+    }
+
     let pool = [...allQuestions];
     let count = 10;
 
@@ -177,20 +265,31 @@ export default function Home() {
     setMode("quiz");
   }
 
-  function submitAnswer() {
-    if (selected === null) return;
+  async function submitAnswer() {
+    if (selected === null || !user) return;
     const q = quiz[index];
     const correct = selected === q.answer;
     const nextAttempt: Attempt = {
+      clientId: newClientId(),
       questionId: q.id,
       correct,
       confidence,
       answeredAt: new Date().toISOString(),
     };
-    const nextAttempts = [...attempts, nextAttempt];
-    setAttempts(nextAttempts);
-    if (user) localStorage.setItem(storageKey(ATTEMPTS_KEY, user.id), JSON.stringify(nextAttempts));
-    setSessionAnswers((s) => [...s, { id: q.id, correct }]);
+
+    setAttempts((current) => [...current, nextAttempt]);
+    setSessionAnswers((current) => [...current, { id: q.id, correct }]);
+    setSyncState("loading");
+    try {
+      await saveAttempt(user.id, nextAttempt);
+      setSyncState("synced");
+    } catch (error) {
+      console.error(error);
+      setAttempts((current) => current.filter((a) => a.clientId !== nextAttempt.clientId));
+      setSessionAnswers((current) => current.slice(0, -1));
+      setSyncState("error");
+      setMessage(dbSetupHint(error));
+    }
   }
 
   function nextQuestion() {
@@ -203,17 +302,29 @@ export default function Home() {
     setConfidence("unsure");
   }
 
-  function toggleBookmark(id: string) {
-    const next = bookmarks.includes(id) ? bookmarks.filter((x) => x !== id) : [...bookmarks, id];
+  async function toggleBookmark(id: string) {
+    if (!user) return;
+    const enabled = !bookmarks.includes(id);
+    const previous = bookmarks;
+    const next = enabled ? [...bookmarks, id] : bookmarks.filter((x) => x !== id);
     setBookmarks(next);
-    if (user) localStorage.setItem(storageKey(BOOKMARKS_KEY, user.id), JSON.stringify(next));
+    setSyncState("loading");
+    try {
+      await saveBookmark(user.id, id, enabled);
+      setSyncState("synced");
+    } catch (error) {
+      console.error(error);
+      setBookmarks(previous);
+      setSyncState("error");
+      setMessage(dbSetupHint(error));
+    }
   }
 
   function handleImport(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
-    if (!file) return;
+    if (!file || !user) return;
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       try {
         const parsed = JSON.parse(String(reader.result));
         if (!Array.isArray(parsed)) throw new Error("配列ではありません");
@@ -223,27 +334,55 @@ export default function Home() {
           }
           return q as Question;
         });
-        const ids = new Set(seedQuestions.map((q) => q.id));
-        const merged = [...customQuestions.filter((q) => !normalized.some((n) => n.id === q.id)), ...normalized.filter((q) => !ids.has(q.id))];
+        const seedIds = new Set(seedQuestions.map((q) => q.id));
+        const importable = normalized.filter((q) => !seedIds.has(q.id));
+        const merged = [...customQuestions.filter((q) => !importable.some((n) => n.id === q.id)), ...importable];
+
+        setSyncState("loading");
+        await upsertCustomQuestions(user.id, importable);
         setCustomQuestions(merged);
-        if (user) localStorage.setItem(storageKey(CUSTOM_KEY, user.id), JSON.stringify(merged));
-        setMessage(`${normalized.length}問を読み込みました。`);
-      } catch (e) {
-        setMessage(`読み込みに失敗しました：${e instanceof Error ? e.message : "形式を確認してください"}`);
+        setSyncState("synced");
+        setMessage(`${importable.length}問をSupabaseへ読み込みました。`);
+      } catch (error) {
+        console.error(error);
+        setSyncState("error");
+        setMessage(`読み込みに失敗しました：${error instanceof Error ? error.message : "形式を確認してください"}`);
+      } finally {
+        event.target.value = "";
       }
     };
     reader.readAsText(file, "utf-8");
   }
 
-  function resetProgress() {
-    if (!confirm("解答履歴とブックマークを削除します。よろしいですか？")) return;
-    setAttempts([]);
-    setBookmarks([]);
-    if (user) {
-      localStorage.removeItem(storageKey(ATTEMPTS_KEY, user.id));
-      localStorage.removeItem(storageKey(BOOKMARKS_KEY, user.id));
+  async function resetProgress() {
+    if (!user || !confirm("Supabase上の解答履歴とブックマークを削除します。よろしいですか？")) return;
+    setSyncState("loading");
+    try {
+      await resetCloudProgress(user.id);
+      setAttempts([]);
+      setBookmarks([]);
+      setSyncState("synced");
+      setMessage("Supabase上の学習履歴をリセットしました。");
+    } catch (error) {
+      console.error(error);
+      setSyncState("error");
+      setMessage(dbSetupHint(error));
     }
-    setMessage("学習履歴をリセットしました。");
+  }
+
+  async function removeCustomQuestions() {
+    if (!user || !confirm("Supabase上の追加問題データを全て削除しますか？")) return;
+    setSyncState("loading");
+    try {
+      await deleteAllCustomQuestions(user.id);
+      setCustomQuestions([]);
+      setSyncState("synced");
+      setMessage("追加問題を削除しました。");
+    } catch (error) {
+      console.error(error);
+      setSyncState("error");
+      setMessage(dbSetupHint(error));
+    }
   }
 
   if (!supabaseConfigured) {
@@ -257,19 +396,19 @@ export default function Home() {
             <code>NEXT_PUBLIC_SUPABASE_URL</code>
             <code>NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY</code>
           </div>
-          <p className="auth-note">詳しい手順はREADMEの「Googleログイン設定」を参照してください。</p>
+          <p className="auth-note">詳しい手順はREADMEを参照してください。</p>
         </section>
       </main>
     );
   }
 
-  if (authLoading) {
+  if (authLoading || (user && dataLoading)) {
     return (
       <main className="auth-shell">
         <section className="auth-card">
           <div className="auth-mark">ST</div>
-          <h1>認証状態を確認しています</h1>
-          <p>Googleログイン情報を確認しています。</p>
+          <h1>{authLoading ? "認証状態を確認しています" : "学習履歴を同期しています"}</h1>
+          <p>{authLoading ? "Googleログイン情報を確認しています。" : "Supabaseから解答履歴・ブックマークを読み込んでいます。"}</p>
         </section>
       </main>
     );
@@ -282,12 +421,12 @@ export default function Home() {
           <div className="auth-mark">ST</div>
           <div className="eyebrow auth-eyebrow">IT STRATEGIST 2026</div>
           <h1>科目A-1 トレーナー</h1>
-          <p>学習履歴をアカウント単位で分離するため、Googleアカウントでログインしてください。</p>
+          <p>学習履歴はSupabaseに保存します。Googleアカウントでログインすると、PCとスマホで同じ進捗を利用できます。</p>
           {message && <div className="notice">{message}</div>}
           <button className="google-button" onClick={signInWithGoogle}>
             <span className="google-g">G</span> Googleでログイン
           </button>
-          <p className="auth-note">ログイン後もV1の学習履歴はこの端末内に保存されます。別端末同期は次の段階でSupabase DBへ移行します。</p>
+          <p className="auth-note">未ログイン状態では学習データを読み書きしません。</p>
         </section>
       </main>
     );
@@ -303,12 +442,13 @@ export default function Home() {
         <header className="topbar">
           <button className="text-button" onClick={() => setMode("home")}>← 終了</button>
           <div className="progress-text">{index + 1} / {quiz.length}</div>
-          <button className={`bookmark ${bookmarks.includes(q.id) ? "active" : ""}`} onClick={() => toggleBookmark(q.id)}>
+          <button className={`bookmark ${bookmarks.includes(q.id) ? "active" : ""}`} onClick={() => void toggleBookmark(q.id)}>
             {bookmarks.includes(q.id) ? "★" : "☆"}
           </button>
         </header>
         <div className="progress-track"><div className="progress-fill" style={{ width: `${((index + 1) / quiz.length) * 100}%` }} /></div>
 
+        {message && <div className="notice" onClick={() => setMessage("")}>{message}</div>}
         <section className="quiz-card">
           <div className="badges">
             <span className="badge">{q.category}</span>
@@ -342,7 +482,9 @@ export default function Home() {
                   <button className={confidence === "unknown" ? "active" : ""} onClick={() => setConfidence("unknown")}>知らなかった</button>
                 </div>
               </div>
-              <button className="primary large" disabled={selected === null} onClick={submitAnswer}>回答する</button>
+              <button className="primary large" disabled={selected === null || syncState === "loading"} onClick={() => void submitAnswer()}>
+                {syncState === "loading" ? "保存中…" : "回答する"}
+              </button>
             </>
           ) : (
             <div className={`explanation ${isCorrect ? "ok" : "ng"}`}>
@@ -366,7 +508,7 @@ export default function Home() {
         <section className="result-card">
           <div className="result-ring"><strong>{rate}%</strong><span>{correct}/{sessionAnswers.length} 正解</span></div>
           <h1>{rate >= 75 ? "良いペースです" : rate >= 60 ? "合格圏を狙えます" : "弱点が見えてきました"}</h1>
-          <p>正答率だけでなく「知らなかった」を記録した問題も弱点モードで優先出題します。</p>
+          <p>今回の結果もSupabaseへ保存済みです。別端末でログインしても続きから学習できます。</p>
           <div className="button-stack">
             <button className="primary" onClick={() => startQuiz("wrong")}>今回までの誤答を復習</button>
             <button className="secondary" onClick={() => setMode("stats")}>分野別成績を見る</button>
@@ -406,9 +548,10 @@ export default function Home() {
     return (
       <main className="app-shell">
         <Header title="問題データ管理" onBack={() => setMode("home")} />
+        {message && <div className="notice" onClick={() => setMessage("")}>{message}</div>}
         <section className="panel">
           <h2>JSON問題データを追加</h2>
-          <p className="muted-text">V1では、問題データをJSONで読み込むとブラウザ内に保存されます。公式過去問を登録する場合は、年度・試験区分・時間区分・問番号等の出典を明記してください。</p>
+          <p className="muted-text">追加問題もSupabaseへ保存され、同じGoogleアカウントなら別端末でも利用できます。公式過去問を登録する場合は、年度・試験区分・時間区分・問番号等の出典を明記してください。</p>
           <label className="upload">
             JSONファイルを選択
             <input type="file" accept="application/json,.json" onChange={handleImport} />
@@ -421,12 +564,7 @@ export default function Home() {
           <a className="link-card" href="https://www.ipa.go.jp/shiken/mondai-kaiotu/index.html" target="_blank" rel="noreferrer">
             IPA公式 過去問題ページを開く ↗
           </a>
-          <button className="danger" onClick={() => {
-            if (!confirm("追加した問題データを全て削除しますか？")) return;
-            setCustomQuestions([]);
-            if (user) localStorage.removeItem(storageKey(CUSTOM_KEY, user.id));
-            setMessage("追加問題を削除しました。");
-          }}>追加問題を削除</button>
+          <button className="danger" onClick={() => void removeCustomQuestions()}>追加問題を削除</button>
         </section>
       </main>
     );
@@ -448,7 +586,13 @@ export default function Home() {
           <span>ログイン中</span>
           <strong>{user.email ?? "Googleアカウント"}</strong>
         </div>
-        <button className="secondary small" onClick={signOut}>ログアウト</button>
+        <div className="user-actions">
+          <span className={`sync-pill ${syncState}`}>
+            {syncState === "synced" ? "☁ 同期済み" : syncState === "loading" ? "↻ 同期中" : syncState === "error" ? "! 同期エラー" : "☁"}
+          </span>
+          <button className="secondary small" onClick={() => void syncFromCloud(user, true)}>再同期</button>
+          <button className="secondary small" onClick={signOut}>ログアウト</button>
+        </div>
       </section>
 
       {message && <div className="notice" onClick={() => setMessage("")}>{message}</div>}
@@ -499,12 +643,12 @@ export default function Home() {
       </section>
 
       <section className="panel compact">
-        <div className="panel-heading"><div><h2>データ</h2><p className="muted-text">標準{seedQuestions.length}問 ＋ 追加{customQuestions.length}問</p></div><button className="secondary small" onClick={() => setMode("manage")}>問題を追加</button></div>
+        <div className="panel-heading"><div><h2>データ</h2><p className="muted-text">標準{seedQuestions.length}問 ＋ 追加{customQuestions.length}問 ／ 学習履歴はSupabase同期</p></div><button className="secondary small" onClick={() => setMode("manage")}>問題を追加</button></div>
       </section>
 
       <footer>
-        <button className="text-button" onClick={resetProgress}>学習履歴をリセット</button>
-        <p>標準収録問題はV1動作確認用のオリジナル問題です。</p>
+        <button className="text-button" onClick={() => void resetProgress()}>学習履歴をリセット</button>
+        <p>標準収録問題は動作確認用のオリジナル問題です。</p>
       </footer>
     </main>
   );
