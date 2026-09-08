@@ -126,3 +126,13 @@ https://www.ipa.go.jp/shiken/mondai-kaiotu/index.html
 - 正答・分野タグ: `officialA1Questions2025`
 
 PDFが端末内で埋め込み表示できない場合も「PDFを別タブで開く」から利用できます。
+
+
+## V3.2: 公式PDFがアプリ内に表示されない場合への対応
+
+V3.1ではIPA公式PDFを外部URLのままiframeへ埋め込んでいましたが、ブラウザや配信側の制約により表示できない場合がありました。V3.2では `/api/official-pdf` から同一オリジン経由で公式PDFを取得して表示します。
+
+- Supabaseの追加SQLは不要です。
+- Vercelの環境変数変更も不要です。
+- 画面上の「PDFを別タブで開く」は公式IPA URLへ直接開くフォールバックとして残しています。
+- APIルートは固定のIPA公式PDFだけを取得し、任意URLは受け付けません。

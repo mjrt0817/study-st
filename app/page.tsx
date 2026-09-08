@@ -564,7 +564,7 @@ export default function Home() {
     const q = officialA1Questions2025[officialIndex];
     const current = officialSelections[q.id];
     const answeredCount = Object.keys(officialSelections).length;
-    const pdfSrc = `${OFFICIAL_A1_2025_PDF}#page=${q.pdfPage}&view=FitH`;
+    const pdfSrc = `/api/official-pdf#page=${q.pdfPage}&view=FitH`;
 
     return (
       <main className="app-shell official-shell">
@@ -579,7 +579,7 @@ export default function Home() {
         <section className="official-layout">
           <div className="official-pdf-panel">
             <iframe key={pdfSrc} src={pdfSrc} title={`IPA公式 2025年度 A-1 問${q.number}`} />
-            <p>PDFが表示されない端末では、上部の「PDFを別タブで開く」を利用してください。</p>
+            <p>PDFはアプリ経由で表示しています。表示されない場合は、上部の「PDFを別タブで開く」を利用してください。</p>
           </div>
           <aside className="official-answer-panel">
             <div className="official-question-heading">
