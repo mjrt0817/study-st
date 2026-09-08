@@ -226,6 +226,7 @@ export default function Home() {
   const [b1Memo, setB1Memo] = useState("");
   const [b1ShowAnswer, setB1ShowAnswer] = useState(false);
   const [b1ShowCommentary, setB1ShowCommentary] = useState(false);
+  const [b1View, setB1View] = useState<"problem" | "answer" | "split">("problem");
   const [b1SecondsLeft, setB1SecondsLeft] = useState(45 * 60);
   const [b1TimerRunning, setB1TimerRunning] = useState(false);
 
@@ -377,6 +378,7 @@ export default function Home() {
     setB1Memo(b1CurrentPractice?.memo ?? "");
     setB1ShowAnswer(false);
     setB1ShowCommentary(false);
+    setB1View("problem");
     setB1SecondsLeft(45 * 60);
     setB1TimerRunning(false);
   }, [b1Year, b1QuestionNumber, mode, b1CurrentPractice?.updatedAt]);
@@ -1131,37 +1133,72 @@ export default function Home() {
           </div>
         </section>
 
-        <section className="b1-workspace">
-          <div className="panel b1-pdf-panel">
-            <div className="panel-heading"><div><h2>{b1Year} 問{b1Question.number}</h2><p className="muted-text">{b1Question.title}</p></div><a className="text-button" href={`${b1Set.pdfUrl}#page=${b1Question.pdfPage}`} target="_blank" rel="noreferrer">公式PDF ↗</a></div>
-            <div className="b1-pdf-frame"><iframe key={questionPdfSrc} src={questionPdfSrc} title={`IPA ${b1Year} B-1 問${b1Question.number}`} /></div>
+        <section className="panel b1-view-toolbar">
+          <div>
+            <strong>表示モード</strong>
+            <span>まず問題文を大きく読み、答案を書くときだけ画面を切り替えるのがおすすめです。</span>
           </div>
+          <div className="b1-view-buttons">
+            <button className={b1View === "problem" ? "active" : ""} onClick={() => setB1View("problem")}>問題を大きく読む</button>
+            <button className={b1View === "answer" ? "active" : ""} onClick={() => setB1View("answer")}>答案を書く</button>
+            <button className={b1View === "split" ? "active" : ""} onClick={() => setB1View("split")}>分割表示</button>
+          </div>
+        </section>
 
-          <div className="panel b1-answer-panel">
-            <div className="b1-focus">
-              <strong>この問で意識すること</strong>
-              <ul>{b1Question.focus.map((item) => <li key={item}>{item}</li>)}</ul>
-            </div>
-            <label className="b1-label">自分の答案・設問別メモ
-              <textarea className="b1-answer-textarea" value={b1AnswerText} onChange={(e) => setB1AnswerText(e.target.value)} placeholder={"例：\n設問1(1)：…\n設問2(1)：…\n設問2(2)：…"} />
-            </label>
-            <div className="b1-answer-actions">
-              <button className="primary" onClick={() => void saveCurrentB1Practice()}>答案を保存</button>
-              <button className="secondary" onClick={() => { setB1ShowAnswer((v) => !v); setB1ShowCommentary(false); }}>{b1ShowAnswer ? "解答例を閉じる" : "公式解答例と比較"}</button>
-              <button className="secondary" onClick={() => { setB1ShowCommentary((v) => !v); setB1ShowAnswer(false); }}>{b1ShowCommentary ? "採点講評を閉じる" : "採点講評を見る"}</button>
-            </div>
-            <div className="b1-rating-block">
-              <span>自己評価</span>
-              <div className="b1-rating-buttons">
-                <button className={b1Rating === "good" ? "selected good" : ""} onClick={() => setB1Rating("good")}>○ 要点を押さえた</button>
-                <button className={b1Rating === "partial" ? "selected partial" : ""} onClick={() => setB1Rating("partial")}>△ 一部不足</button>
-                <button className={b1Rating === "redo" ? "selected redo" : ""} onClick={() => setB1Rating("redo")}>× 書き直し</button>
+        <section className={`b1-workspace view-${b1View}`}>
+          {b1View !== "answer" && (
+            <div className="panel b1-pdf-panel">
+              <div className="panel-heading">
+                <div><h2>{b1Year} 問{b1Question.number}</h2><p className="muted-text">{b1Question.title}</p></div>
+                <div className="b1-pdf-actions">
+                  {b1View === "split" && <button className="secondary small" onClick={() => setB1View("problem")}>大きく表示</button>}
+                  <a className="text-button" href={`${b1Set.pdfUrl}#page=${b1Question.pdfPage}`} target="_blank" rel="noreferrer">公式PDF ↗</a>
+                </div>
               </div>
+              <div className="b1-pdf-frame"><iframe key={questionPdfSrc} src={questionPdfSrc} title={`IPA ${b1Year} B-1 問${b1Question.number}`} /></div>
+              {b1View === "problem" && (
+                <div className="b1-problem-next">
+                  <span>本文と設問を読み終えたら、答案入力へ切り替えます。</span>
+                  <button className="primary" onClick={() => setB1View("answer")}>答案を書く →</button>
+                </div>
+              )}
             </div>
-            <label className="b1-label">解答例・採点講評からの気づき
-              <textarea className="b1-memo-textarea" value={b1Memo} onChange={(e) => setB1Memo(e.target.value)} placeholder="本文のどこを読み落としたか、主語・理由・具体性などを記録" />
-            </label>
-          </div>
+          )}
+
+          {b1View !== "problem" && (
+            <div className="panel b1-answer-panel">
+              <div className="b1-answer-topline">
+                <div>
+                  <div className="eyebrow">{b1Year} 問{b1Question.number}</div>
+                  <h2>{b1Question.title}</h2>
+                </div>
+                {b1View === "answer" && <button className="secondary" onClick={() => setB1View("problem")}>← 問題を確認</button>}
+              </div>
+              <div className="b1-focus">
+                <strong>この問で意識すること</strong>
+                <ul>{b1Question.focus.map((item) => <li key={item}>{item}</li>)}</ul>
+              </div>
+              <label className="b1-label">自分の答案・設問別メモ
+                <textarea className="b1-answer-textarea" value={b1AnswerText} onChange={(e) => setB1AnswerText(e.target.value)} placeholder={"例：\n設問1(1)：…\n設問2(1)：…\n設問2(2)：…"} />
+              </label>
+              <div className="b1-answer-actions">
+                <button className="primary" onClick={() => void saveCurrentB1Practice()}>答案を保存</button>
+                <button className="secondary" onClick={() => { setB1ShowAnswer((v) => !v); setB1ShowCommentary(false); }}>{b1ShowAnswer ? "解答例を閉じる" : "公式解答例と比較"}</button>
+                <button className="secondary" onClick={() => { setB1ShowCommentary((v) => !v); setB1ShowAnswer(false); }}>{b1ShowCommentary ? "採点講評を閉じる" : "採点講評を見る"}</button>
+              </div>
+              <div className="b1-rating-block">
+                <span>自己評価</span>
+                <div className="b1-rating-buttons">
+                  <button className={b1Rating === "good" ? "selected good" : ""} onClick={() => setB1Rating("good")}>○ 要点を押さえた</button>
+                  <button className={b1Rating === "partial" ? "selected partial" : ""} onClick={() => setB1Rating("partial")}>△ 一部不足</button>
+                  <button className={b1Rating === "redo" ? "selected redo" : ""} onClick={() => setB1Rating("redo")}>× 書き直し</button>
+                </div>
+              </div>
+              <label className="b1-label">解答例・採点講評からの気づき
+                <textarea className="b1-memo-textarea" value={b1Memo} onChange={(e) => setB1Memo(e.target.value)} placeholder="本文のどこを読み落としたか、主語・理由・具体性などを記録" />
+              </label>
+            </div>
+          )}
         </section>
 
         {b1ShowAnswer && <section className="panel b1-reference"><div className="panel-heading"><div><h2>IPA公式 解答例</h2><p className="muted-text">自分の答案を書いてから比較するのがおすすめです。</p></div><a className="text-button" href={b1Set.answerPdfUrl} target="_blank" rel="noreferrer">別タブ ↗</a></div><div className="b1-reference-frame"><iframe key={answerPdfSrc} src={answerPdfSrc} title={`IPA ${b1Year} B-1 解答例`} /></div></section>}
