@@ -173,3 +173,50 @@ export async function migrateLocalStudyData(
     if (error) throw error;
   }
 }
+
+export type B1SelfRating = "unrated" | "good" | "partial" | "redo";
+export type B1Practice = {
+  year: string;
+  questionNumber: number;
+  answerText: string;
+  selfRating: B1SelfRating;
+  memo: string;
+  updatedAt: string;
+};
+
+export async function loadB1Practices(): Promise<B1Practice[]> {
+  const { data, error } = await client()
+    .from("study_b1_practices")
+    .select("exam_year, question_number, answer_text, self_rating, memo, updated_at")
+    .order("updated_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map((row) => ({
+    year: row.exam_year,
+    questionNumber: row.question_number,
+    answerText: row.answer_text ?? "",
+    selfRating: row.self_rating as B1SelfRating,
+    memo: row.memo ?? "",
+    updatedAt: row.updated_at,
+  }));
+}
+
+export async function saveB1Practice(userId: string, practice: B1Practice) {
+  const { error } = await client().from("study_b1_practices").upsert(
+    {
+      user_id: userId,
+      exam_year: practice.year,
+      question_number: practice.questionNumber,
+      answer_text: practice.answerText,
+      self_rating: practice.selfRating,
+      memo: practice.memo,
+      updated_at: practice.updatedAt,
+    },
+    { onConflict: "user_id,exam_year,question_number" },
+  );
+  if (error) throw error;
+}
+
+export async function deleteAllB1Practices(userId: string) {
+  const { error } = await client().from("study_b1_practices").delete().eq("user_id", userId);
+  if (error) throw error;
+}

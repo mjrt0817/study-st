@@ -7,21 +7,28 @@ import type { OfficialA1Question, OfficialA1Year } from "../data/officialA1";
 import { officialA1AllQuestions, officialA1Sets } from "../data/officialA1";
 import type { OfficialA2Question, OfficialA2Year } from "../data/officialA2";
 import { officialA2AllQuestions, officialA2Sets } from "../data/officialA2";
+import type { OfficialB1Year } from "../data/officialB1";
+import { officialB1Sets, officialB1Years } from "../data/officialB1";
 import { supabase, supabaseConfigured } from "../lib/supabase";
 import {
   Attempt,
+  B1Practice,
+  B1SelfRating,
   Confidence,
   deleteAllCustomQuestions,
+  deleteAllB1Practices,
+  loadB1Practices,
   loadCloudStudyData,
   migrateLocalStudyData,
   resetCloudProgress,
   saveAttempt,
   saveAttempts,
+  saveB1Practice,
   saveBookmark,
   upsertCustomQuestions,
 } from "../lib/studyStore";
 
-type Mode = "home" | "quiz" | "result" | "stats" | "manage" | "official" | "officialResult" | "review" | "reviewResult";
+type Mode = "home" | "quiz" | "result" | "stats" | "manage" | "official" | "officialResult" | "review" | "reviewResult" | "b1";
 type QuizKind = "random" | "mock" | "weak" | "wrong" | "category";
 type ReviewKind = "recommended" | "wrong" | "unsure" | "unknown" | "category";
 type OfficialExam = "A-1" | "A-2";
@@ -210,6 +217,17 @@ export default function Home() {
   const [reviewConfidence, setReviewConfidence] = useState<Confidence>("unsure");
   const [reviewAnswered, setReviewAnswered] = useState(false);
   const [reviewSessionAnswers, setReviewSessionAnswers] = useState<{ id: string; correct: boolean }[]>([]);
+  const [b1Practices, setB1Practices] = useState<B1Practice[]>([]);
+  const [b1DbReady, setB1DbReady] = useState(false);
+  const [b1Year, setB1Year] = useState<OfficialB1Year>("2025");
+  const [b1QuestionNumber, setB1QuestionNumber] = useState<1 | 2 | 3>(1);
+  const [b1AnswerText, setB1AnswerText] = useState("");
+  const [b1Rating, setB1Rating] = useState<B1SelfRating>("unrated");
+  const [b1Memo, setB1Memo] = useState("");
+  const [b1ShowAnswer, setB1ShowAnswer] = useState(false);
+  const [b1ShowCommentary, setB1ShowCommentary] = useState(false);
+  const [b1SecondsLeft, setB1SecondsLeft] = useState(45 * 60);
+  const [b1TimerRunning, setB1TimerRunning] = useState(false);
 
   useEffect(() => {
     if (!supabase) {
@@ -246,6 +264,15 @@ export default function Home() {
       setAttempts(cloud.attempts);
       setBookmarks(cloud.bookmarks);
       setCustomQuestions(cloud.customQuestions);
+      try {
+        const b1 = await loadB1Practices();
+        setB1Practices(b1);
+        setB1DbReady(true);
+      } catch (b1Error) {
+        console.warn("B-1 practice table is not ready", b1Error);
+        setB1Practices([]);
+        setB1DbReady(false);
+      }
       setSyncState("synced");
       if (hasLocal) setMessage("この端末の旧学習データをSupabaseへ移行しました。");
       else if (announce) setMessage("Supabaseから最新の学習履歴を読み込みました。");
@@ -266,6 +293,8 @@ export default function Home() {
       setAttempts([]);
       setBookmarks([]);
       setCustomQuestions([]);
+      setB1Practices([]);
+      setB1DbReady(false);
       setSyncState("idle");
       return;
     }
@@ -281,6 +310,24 @@ export default function Home() {
   const a1Metrics = useMemo(() => computeOfficialMetrics(attempts, officialA1AllQuestions), [attempts]);
   const a2Metrics = useMemo(() => computeOfficialMetrics(attempts, officialA2AllQuestions), [attempts]);
   const activeMetrics = officialExam === "A-1" ? a1Metrics : a2Metrics;
+  const a2FrequentAreas = useMemo(() => {
+    const counts = new Map<string, number>();
+    officialA2AllQuestions.forEach((q) => counts.set(q.category, (counts.get(q.category) || 0) + 1));
+    return Array.from(counts.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 6);
+  }, []);
+  const a2StudyStatus = a2Metrics.currentAccuracy === null
+    ? { label: "未判定", detail: "まずA-2公式25問を1年度分解きましょう。", tone: "neutral" }
+    : a2Metrics.currentAccuracy >= 80
+      ? { label: "安定圏", detail: "現状は良好です。誤答と迷った問題の再確認を優先。", tone: "good" }
+      : a2Metrics.currentAccuracy >= 65
+        ? { label: "合格水準を意識", detail: "弱点TOP3を潰して正答率を安定させましょう。", tone: "warn" }
+        : { label: "要補強", detail: "頻出領域と誤答を優先して基礎を固めましょう。", tone: "danger" };
+  const b1Set = officialB1Sets[b1Year];
+  const b1Question = b1Set.questions.find((q) => q.number === b1QuestionNumber) ?? b1Set.questions[0];
+  const b1CurrentPractice = b1Practices.find((p) => p.year === b1Year && p.questionNumber === b1QuestionNumber);
   const latestOfficialAttempts = activeMetrics.latest;
 
   const totalAccuracy = accuracy(attempts);
@@ -308,6 +355,63 @@ export default function Home() {
       .sort((a, b) => a.accuracy - b.accuracy)
       .slice(0, 3);
   }, [attempts, statsQuestions]);
+
+  useEffect(() => {
+    if (!b1TimerRunning || mode !== "b1") return;
+    const timer = window.setInterval(() => {
+      setB1SecondsLeft((current) => {
+        if (current <= 1) {
+          setB1TimerRunning(false);
+          return 0;
+        }
+        return current - 1;
+      });
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [b1TimerRunning, mode]);
+
+  useEffect(() => {
+    if (mode !== "b1") return;
+    setB1AnswerText(b1CurrentPractice?.answerText ?? "");
+    setB1Rating(b1CurrentPractice?.selfRating ?? "unrated");
+    setB1Memo(b1CurrentPractice?.memo ?? "");
+    setB1ShowAnswer(false);
+    setB1ShowCommentary(false);
+    setB1SecondsLeft(45 * 60);
+    setB1TimerRunning(false);
+  }, [b1Year, b1QuestionNumber, mode, b1CurrentPractice?.updatedAt]);
+
+  function openB1(year: OfficialB1Year = "2025", questionNumber: 1 | 2 | 3 = 1) {
+    setB1Year(year);
+    setB1QuestionNumber(questionNumber);
+    setMessage("");
+    setMode("b1");
+  }
+
+  async function saveCurrentB1Practice() {
+    if (!user) return;
+    if (!b1DbReady) {
+      setMessage("B-1保存テーブルが未作成です。Supabase SQL Editorで supabase/setup_v4_1.sql を実行してください。");
+      return;
+    }
+    const record: B1Practice = {
+      year: b1Year,
+      questionNumber: b1QuestionNumber,
+      answerText: b1AnswerText,
+      selfRating: b1Rating,
+      memo: b1Memo,
+      updatedAt: new Date().toISOString(),
+    };
+    try {
+      await saveB1Practice(user.id, record);
+      setB1Practices((current) => [record, ...current.filter((p) => !(p.year === record.year && p.questionNumber === record.questionNumber))]);
+      setMessage(`${b1Year}年度 B-1 問${b1QuestionNumber}の答案・自己評価を保存しました。`);
+    } catch (error) {
+      console.error(error);
+      setB1DbReady(false);
+      setMessage("B-1答案の保存に失敗しました。supabase/setup_v4_1.sql の実行とRLS設定を確認してください。");
+    }
+  }
 
   async function signInWithGoogle() {
     if (!supabase) return;
@@ -586,12 +690,14 @@ export default function Home() {
   }
 
   async function resetProgress() {
-    if (!user || !confirm("Supabase上の解答履歴とブックマークを削除します。よろしいですか？")) return;
+    if (!user || !confirm("Supabase上のA-1/A-2解答履歴・ブックマーク・B-1記述履歴を削除します。よろしいですか？")) return;
     setSyncState("loading");
     try {
       await resetCloudProgress(user.id);
+      if (b1DbReady) await deleteAllB1Practices(user.id);
       setAttempts([]);
       setBookmarks([]);
+      setB1Practices([]);
       setSyncState("synced");
       setMessage("Supabase上の学習履歴をリセットしました。");
     } catch (error) {
@@ -651,8 +757,8 @@ export default function Home() {
         <section className="auth-card">
           <div className="auth-mark">ST</div>
           <div className="eyebrow auth-eyebrow">IT STRATEGIST 2026</div>
-          <h1>科目A-1 / A-2 トレーナー</h1>
-          <p>学習履歴はSupabaseに保存します。Googleアカウントでログインすると、PCとスマホで同じ進捗を利用できます。</p>
+          <h1>科目A-1 / A-2 / B-1 トレーナー</h1>
+          <p>選択問題の履歴とB-1記述答案をSupabaseに保存します。Googleアカウントでログインすると、PCとスマホで同じ進捗を利用できます。</p>
           {message && <div className="notice">{message}</div>}
           <button className="google-button" onClick={signInWithGoogle}>
             <span className="google-g">G</span> Googleでログイン
@@ -986,6 +1092,84 @@ export default function Home() {
     );
   }
 
+  if (mode === "b1") {
+    const minutes = Math.floor(b1SecondsLeft / 60).toString().padStart(2, "0");
+    const seconds = (b1SecondsLeft % 60).toString().padStart(2, "0");
+    const questionPdfSrc = `/api/official-pdf?exam=b1&year=${b1Year}&doc=question#page=${b1Question.pdfPage}&view=FitH`;
+    const answerPdfSrc = `/api/official-pdf?exam=b1&year=${b1Year}&doc=answer#page=1&view=FitH`;
+    const commentaryPdfSrc = `/api/official-pdf?exam=b1&year=${b1Year}&doc=commentary#page=1&view=FitH`;
+    return (
+      <main className="app-shell b1-shell">
+        <Header title="B-1 記述トレーナー" onBack={() => setMode("home")} />
+        {message && <div className="notice" onClick={() => setMessage("")}>{message}</div>}
+        {!b1DbReady && <div className="notice warning">答案をSupabaseへ保存するには、先に <strong>supabase/setup_v4_1.sql</strong> をSQL Editorで実行してください。PDF閲覧と入力は先に試せます。</div>}
+
+        <section className="panel b1-guide">
+          <div>
+            <div className="eyebrow">2026 科目B-1</div>
+            <h2>3問から2問を選択・90分</h2>
+            <p className="muted-text">1問あたり45分を目安に、本文根拠 → 設問の主語 → 要求字数の順で答案を組み立てます。</p>
+          </div>
+          <div className={`b1-timer ${b1SecondsLeft === 0 ? "timeup" : ""}`}>
+            <span>1問の目安</span><strong>{minutes}:{seconds}</strong>
+            <div>
+              <button className="secondary small" onClick={() => setB1TimerRunning((v) => !v)}>{b1TimerRunning ? "一時停止" : "開始"}</button>
+              <button className="text-button" onClick={() => { setB1SecondsLeft(45 * 60); setB1TimerRunning(false); }}>リセット</button>
+            </div>
+          </div>
+        </section>
+
+        <section className="panel b1-selector">
+          <div className="b1-year-tabs">
+            {officialB1Years.map((year) => <button key={year} className={b1Year === year ? "active" : ""} onClick={() => { setB1Year(year); setB1QuestionNumber(1); }}>{officialB1Sets[year].shortLabel} / {year}</button>)}
+          </div>
+          <div className="b1-question-tabs">
+            {b1Set.questions.map((q) => {
+              const saved = b1Practices.find((p) => p.year === b1Year && p.questionNumber === q.number);
+              return <button key={q.number} className={b1QuestionNumber === q.number ? "active" : ""} onClick={() => setB1QuestionNumber(q.number)}><strong>問{q.number}</strong><span>{q.title}</span>{saved && <small>保存済み {saved.selfRating === "good" ? "○" : saved.selfRating === "partial" ? "△" : saved.selfRating === "redo" ? "×" : "・"}</small>}</button>;
+            })}
+          </div>
+        </section>
+
+        <section className="b1-workspace">
+          <div className="panel b1-pdf-panel">
+            <div className="panel-heading"><div><h2>{b1Year} 問{b1Question.number}</h2><p className="muted-text">{b1Question.title}</p></div><a className="text-button" href={`${b1Set.pdfUrl}#page=${b1Question.pdfPage}`} target="_blank" rel="noreferrer">公式PDF ↗</a></div>
+            <div className="b1-pdf-frame"><iframe key={questionPdfSrc} src={questionPdfSrc} title={`IPA ${b1Year} B-1 問${b1Question.number}`} /></div>
+          </div>
+
+          <div className="panel b1-answer-panel">
+            <div className="b1-focus">
+              <strong>この問で意識すること</strong>
+              <ul>{b1Question.focus.map((item) => <li key={item}>{item}</li>)}</ul>
+            </div>
+            <label className="b1-label">自分の答案・設問別メモ
+              <textarea className="b1-answer-textarea" value={b1AnswerText} onChange={(e) => setB1AnswerText(e.target.value)} placeholder={"例：\n設問1(1)：…\n設問2(1)：…\n設問2(2)：…"} />
+            </label>
+            <div className="b1-answer-actions">
+              <button className="primary" onClick={() => void saveCurrentB1Practice()}>答案を保存</button>
+              <button className="secondary" onClick={() => { setB1ShowAnswer((v) => !v); setB1ShowCommentary(false); }}>{b1ShowAnswer ? "解答例を閉じる" : "公式解答例と比較"}</button>
+              <button className="secondary" onClick={() => { setB1ShowCommentary((v) => !v); setB1ShowAnswer(false); }}>{b1ShowCommentary ? "採点講評を閉じる" : "採点講評を見る"}</button>
+            </div>
+            <div className="b1-rating-block">
+              <span>自己評価</span>
+              <div className="b1-rating-buttons">
+                <button className={b1Rating === "good" ? "selected good" : ""} onClick={() => setB1Rating("good")}>○ 要点を押さえた</button>
+                <button className={b1Rating === "partial" ? "selected partial" : ""} onClick={() => setB1Rating("partial")}>△ 一部不足</button>
+                <button className={b1Rating === "redo" ? "selected redo" : ""} onClick={() => setB1Rating("redo")}>× 書き直し</button>
+              </div>
+            </div>
+            <label className="b1-label">解答例・採点講評からの気づき
+              <textarea className="b1-memo-textarea" value={b1Memo} onChange={(e) => setB1Memo(e.target.value)} placeholder="本文のどこを読み落としたか、主語・理由・具体性などを記録" />
+            </label>
+          </div>
+        </section>
+
+        {b1ShowAnswer && <section className="panel b1-reference"><div className="panel-heading"><div><h2>IPA公式 解答例</h2><p className="muted-text">自分の答案を書いてから比較するのがおすすめです。</p></div><a className="text-button" href={b1Set.answerPdfUrl} target="_blank" rel="noreferrer">別タブ ↗</a></div><div className="b1-reference-frame"><iframe key={answerPdfSrc} src={answerPdfSrc} title={`IPA ${b1Year} B-1 解答例`} /></div></section>}
+        {b1ShowCommentary && <section className="panel b1-reference"><div className="panel-heading"><div><h2>IPA公式 採点講評</h2><p className="muted-text">誤答傾向と、何を読み取るべきだったかを確認します。</p></div><a className="text-button" href={b1Set.commentaryPdfUrl} target="_blank" rel="noreferrer">別タブ ↗</a></div><div className="b1-reference-frame compact"><iframe key={commentaryPdfSrc} src={commentaryPdfSrc} title={`IPA ${b1Year} B-1 採点講評`} /></div></section>}
+      </main>
+    );
+  }
+
   if (mode === "manage") {
     return (
       <main className="app-shell">
@@ -1003,7 +1187,7 @@ export default function Home() {
             <div><strong>{customQuestions.length}</strong><span>追加問題</span></div>
             <div><strong>{allQuestions.length}</strong><span>アプリ内合計</span></div>
           </div>
-          <p className="muted-text">別途、2025〜2021年度春期の公式A-1各30問（150問）とA-2各25問（125問）を「公式過去問モード」で利用できます（問題本文・図表はIPA公式PDFを参照）。</p>
+          <p className="muted-text">別途、2025〜2021年度春期の公式A-1各30問（150問）とA-2各25問（125問）、B-1は2025・2024年度の公式問題・解答例・採点講評を利用できます。</p>
           <a className="link-card" href="https://www.ipa.go.jp/shiken/mondai-kaiotu/index.html" target="_blank" rel="noreferrer">
             IPA公式 過去問題ページを開く ↗
           </a>
@@ -1018,8 +1202,8 @@ export default function Home() {
       <section className="hero">
         <div>
           <div className="eyebrow">ITストラテジスト 2026</div>
-          <h1>科目A-1 / A-2 トレーナー</h1>
-          <p>解く → 弱点を見つける → 弱点だけ反復する。</p>
+          <h1>科目A-1 / A-2 / B-1 トレーナー</h1>
+          <p>選択問題は弱点反復、記述問題は本文根拠と答案比較で鍛える。</p>
         </div>
         <button className="gear" onClick={() => setMode("manage")}>⚙</button>
       </section>
@@ -1044,13 +1228,17 @@ export default function Home() {
         <div className="summary-card"><span>公式275問 回答済み</span><strong>{a1Metrics.answeredCount + a2Metrics.answeredCount}</strong><small>/ 275問</small></div>
         <div className="summary-card"><span>A-1 正答率</span><strong>{a1Metrics.currentAccuracy ?? "—"}</strong><small>{a1Metrics.currentAccuracy === null ? "" : "%"}</small></div>
         <div className="summary-card"><span>A-2 正答率</span><strong>{a2Metrics.currentAccuracy ?? "—"}</strong><small>{a2Metrics.currentAccuracy === null ? "" : "%"}</small></div>
-        <div className="summary-card"><span>累計回答</span><strong>{attempts.length}</strong><small>回</small></div>
+        <div className="summary-card"><span>B-1 保存済み</span><strong>{b1Practices.length}</strong><small>/ 6問</small></div>
       </section>
 
       <section className="panel review-dashboard">
         <div className="panel-heading">
           <div><h2>A-2 年度横断・弱点復習</h2><p className="muted-text">ITストラテジスト固有の2025〜2021年125問から、優先問題を選びます。</p></div>
           <span className="review-count">要復習 {a2Metrics.reviewIds.size}問</span>
+        </div>
+        <div className="a2-focus-grid">
+          <div className={`a2-status-card ${a2StudyStatus.tone}`}><span>学習目安</span><strong>{a2StudyStatus.label}</strong><small>{a2StudyStatus.detail}</small></div>
+          <div className="a2-frequency-card"><span>5年125問の頻出領域</span><div>{a2FrequentAreas.map((item) => <button key={item.name} onClick={() => startOfficialReview("A-2", "category", item.name)}><strong>{item.name}</strong><small>{item.count}問</small></button>)}</div></div>
         </div>
         <button className="recommend-card" onClick={() => startOfficialReview("A-2", "recommended")}>
           <span className="recommend-icon">10</span><span><strong>A-2 今日のおすすめ10問</strong><small>誤答 → 知らなかった → 迷った → 弱点分野の順に優先</small></span><span>→</span>
@@ -1072,6 +1260,19 @@ export default function Home() {
               <span className="action-icon">{set.shortLabel}</span><span><strong>{year}公式A-2 25問</strong><small>IPA公式PDF＋クラウド採点</small></span>
             </button>
           ); })}
+        </div>
+      </section>
+
+      <section className="panel b1-home-panel">
+        <div className="panel-heading">
+          <div><h2>B-1 記述対策</h2><p className="muted-text">90分で3問から2問を選択。まず2025・2024年度の公式問題で、答案作成→解答例→採点講評の流れを練習します。</p></div>
+          <span className={`b1-db-pill ${b1DbReady ? "ready" : "pending"}`}>{b1DbReady ? `☁ ${b1Practices.length}/6保存` : "DB追加SQL未実行"}</span>
+        </div>
+        <button className="recommend-card b1-launch-card" onClick={() => openB1("2025", 1)}>
+          <span className="recommend-icon">記</span><span><strong>B-1 記述トレーナーを開く</strong><small>公式PDFを見ながら答案入力・45分タイマー・自己評価・採点講評メモ</small></span><span>→</span>
+        </button>
+        <div className="b1-year-summary">
+          {officialB1Years.map((year) => <button key={year} onClick={() => openB1(year, 1)}><strong>{officialB1Sets[year].shortLabel} / {year}</strong><span>{b1Practices.filter((p) => p.year === year).length}/3問 保存済み</span></button>)}
         </div>
       </section>
 
@@ -1132,12 +1333,12 @@ export default function Home() {
       </section>
 
       <section className="panel compact">
-        <div className="panel-heading"><div><h2>データ</h2><p className="muted-text">標準{seedQuestions.length}問 ＋ 追加{customQuestions.length}問 ＋ 公式過去問275問（A-1 150＋A-2 125） ／ 年度横断復習対応・Supabase同期</p></div><button className="secondary small" onClick={() => setMode("manage")}>問題を追加</button></div>
+        <div className="panel-heading"><div><h2>データ</h2><p className="muted-text">標準{seedQuestions.length}問 ＋ 追加{customQuestions.length}問 ＋ A系公式275問（A-1 150＋A-2 125）＋ B-1記述6問 ／ Supabase同期</p></div><button className="secondary small" onClick={() => setMode("manage")}>問題を追加</button></div>
       </section>
 
       <footer>
         <button className="text-button" onClick={() => void resetProgress()}>学習履歴をリセット</button>
-        <p>標準問題はオリジナル問題。2025〜2021年度公式過去問はIPA公式PDFを参照して解答します。</p>
+        <p>標準問題はオリジナル問題。A系2025〜2021年度とB-1 2025〜2024年度はIPA公式PDFを参照して学習します。</p>
       </footer>
     </main>
   );
