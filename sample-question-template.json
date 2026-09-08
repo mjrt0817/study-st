@@ -1,0 +1,16 @@
+[
+  {
+    "id": "2025-st-am1-q01",
+    "exam": "A-1",
+    "category": "基礎理論",
+    "subcategory": "例：論理回路",
+    "question": "ここに問題文",
+    "choices": ["選択肢ア", "選択肢イ", "選択肢ウ", "選択肢エ"],
+    "answer": 0,
+    "explanation": "ここにオリジナル解説または利用可能な解説",
+    "source": "出典：令和7年度 春期 ITストラテジスト試験 午前I 問1",
+    "sourceUrl": "https://www.ipa.go.jp/shiken/mondai-kaiotu/2025r07.html",
+    "year": "2025",
+    "official": true
+  }
+]
