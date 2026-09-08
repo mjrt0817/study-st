@@ -3,6 +3,7 @@ import type { Question } from "./questions";
 export type OfficialA1Year = "2025" | "2024" | "2023";
 
 export type OfficialA1Question = Question & {
+  year: OfficialA1Year;
   number: number;
   pdfPage: number;
   learningPoint: string;
