@@ -11,6 +11,7 @@ import type { OfficialB1Year } from "../data/officialB1";
 import { officialB1Sets, officialB1Years } from "../data/officialB1";
 import { supabase, supabaseConfigured } from "../lib/supabase";
 import { buildRichExplanation } from "../lib/explanationGuide";
+import { buildDeepReasoning } from "../lib/deepReasoning";
 import {
   Attempt,
   B1Practice,
@@ -144,14 +145,35 @@ type OfficialMetrics = {
 
 function DetailedExplanation({ question, defaultOpen = true }: { question: Question | OfficialQuestion; defaultOpen?: boolean }) {
   const guide = buildRichExplanation(question);
+  const deep = buildDeepReasoning(question);
   return (
     <div className="rich-explanation">
-      <div className="rich-summary">
-        <strong>まず押さえるポイント</strong>
+      <section className="deep-answer">
+        <div className="deep-answer-title">
+          <span className="deep-answer-label">解答の理由</span>
+          <strong>{deep.conclusion}</strong>
+        </div>
+        <h3>なぜこの答えになるのか</h3>
+        <ol className="reasoning-steps">{deep.steps.map((item, i) => <li key={`r-${i}`}>{item}</li>)}</ol>
+        {deep.calculation && deep.calculation.length > 0 && (
+          <div className="calculation-box">
+            <h3>途中式・処理過程</h3>
+            {deep.calculation.map((item, i) => <div key={`f-${i}`} className="calculation-line">{item}</div>)}
+          </div>
+        )}
+        <div className="eliminate-box">
+          <h3>他の選択肢をどう切るか</h3>
+          <ul>{deep.eliminate.map((item, i) => <li key={`e-${i}`}>{item}</li>)}</ul>
+        </div>
+        <div className="takeaway-box"><strong>この問題で持ち帰ること</strong><p>{deep.takeaway}</p></div>
+      </section>
+
+      <div className="rich-summary secondary-summary">
+        <strong>問題の要点</strong>
         <p>{guide.summary}</p>
       </div>
       <details className="rich-details" open={defaultOpen}>
-        <summary>詳しい解説を{defaultOpen ? "確認" : "開く"}</summary>
+        <summary>関連知識まで確認する</summary>
         <div className="rich-section">
           <h3>初見向けの背景知識</h3>
           <p>{guide.beginner}</p>

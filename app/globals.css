@@ -392,3 +392,73 @@ footer p { margin: 5px 0; }
 @media (max-width: 680px) {
   .rich-summary, .rich-section { padding: 11px 12px; }
 }
+
+/* V4.4: answer-first, step-by-step explanations */
+.deep-answer {
+  margin: 14px 0 18px;
+  padding: 18px;
+  border-radius: 16px;
+  background: #fff;
+  border: 2px solid #cfe0ff;
+  box-shadow: 0 8px 24px rgba(31, 78, 121, 0.08);
+  color: #182230;
+}
+.deep-answer-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.deep-answer-title strong { font-size: 1.14rem; color: #163d70; }
+.deep-answer-label {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: #1f4e78;
+  color: #fff;
+  font-size: .78rem;
+  font-weight: 800;
+  letter-spacing: .04em;
+}
+.deep-answer h3 { margin: 14px 0 8px; font-size: 1rem; color: #26384d; }
+.reasoning-steps { margin: 0; padding-left: 1.55rem; line-height: 1.8; }
+.reasoning-steps li { padding-left: .25rem; margin: 5px 0; }
+.calculation-box {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #f4f8ff;
+  border-left: 4px solid #3973b7;
+}
+.calculation-box h3 { margin-top: 0; }
+.calculation-line {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  padding: 5px 0;
+  font-weight: 650;
+  line-height: 1.5;
+}
+.eliminate-box {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #fff8ed;
+  border-left: 4px solid #c9892a;
+}
+.eliminate-box h3 { margin-top: 0; }
+.eliminate-box ul { margin-bottom: 0; padding-left: 1.3rem; line-height: 1.7; }
+.takeaway-box {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #effaf4;
+  border-left: 4px solid #2d8a5f;
+}
+.takeaway-box p { margin: 5px 0 0; line-height: 1.7; }
+.secondary-summary { margin-top: 14px; }
+@media (max-width: 720px) {
+  .deep-answer { padding: 14px; }
+  .reasoning-steps { padding-left: 1.35rem; }
+  .calculation-line { font-size: .9rem; overflow-wrap: anywhere; }
+}

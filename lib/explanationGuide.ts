@@ -1,4 +1,6 @@
 export type ExplainableQuestion = {
+  id?: string;
+  answer?: number;
   exam?: "A-1" | "A-2";
   category: string;
   subcategory?: string;
