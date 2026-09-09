@@ -38,6 +38,7 @@ type OfficialYear = OfficialA1Year | OfficialA2Year;
 type OfficialQuestion = OfficialA1Question | OfficialA2Question;
 type SyncState = "idle" | "loading" | "synced" | "error";
 const OFFICIAL_YEARS: OfficialYear[] = ["2025", "2024", "2023", "2022", "2021"];
+const APP_VERSION = "V4.4.1";
 
 const ATTEMPTS_KEY = "st-a1-attempts-v2";
 const BOOKMARKS_KEY = "st-a1-bookmarks-v2";
@@ -1294,7 +1295,7 @@ export default function Home() {
     <main className="app-shell">
       <section className="hero">
         <div>
-          <div className="eyebrow">ITストラテジスト 2026</div>
+          <div className="eyebrow">ITストラテジスト 2026 ・ {APP_VERSION}</div>
           <h1>科目A-1 / A-2 / B-1 トレーナー</h1>
           <p>選択問題は弱点反復、記述問題は本文根拠と答案比較で鍛える。</p>
         </div>
