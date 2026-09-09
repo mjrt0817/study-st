@@ -462,3 +462,164 @@ footer p { margin: 5px 0; }
   .reasoning-steps { padding-left: 1.35rem; }
   .calculation-line { font-size: .9rem; overflow-wrap: anywhere; }
 }
+
+/* V4.5: keep the official problem readable while giving explanations full width */
+.review-feedback-compact {
+  text-align: left;
+}
+.review-feedback-compact p {
+  margin: 8px 0 10px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.65;
+}
+.review-correct-answer {
+  display: block;
+  font-size: 18px;
+  margin: 4px 0 2px;
+}
+.review-jump-link {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  margin-top: 4px !important;
+}
+.review-explanation-wide {
+  grid-column: 1 / -1;
+  width: 100%;
+  margin-top: 4px;
+  padding: clamp(22px, 3vw, 34px);
+  border-radius: 20px;
+  background: #fff;
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  scroll-margin-top: 14px;
+}
+.review-explanation-wide.ok {
+  border-top: 5px solid var(--success);
+}
+.review-explanation-wide.ng {
+  border-top: 5px solid var(--danger);
+}
+.review-explanation-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  padding-bottom: 18px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--line);
+}
+.review-explanation-heading h2 {
+  margin: 4px 0 0;
+  font-size: clamp(22px, 2.5vw, 30px);
+}
+.review-explanation-kicker {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+.review-explanation-topic {
+  flex: 0 0 auto;
+  padding: 7px 11px;
+  border-radius: 999px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 800;
+}
+.review-explanation-wide .rich-explanation {
+  max-width: 1120px;
+  margin: 0 auto;
+}
+.review-explanation-wide .deep-answer {
+  padding: clamp(20px, 2.8vw, 30px);
+}
+.review-explanation-wide .deep-answer-title strong {
+  font-size: clamp(18px, 2vw, 23px);
+  line-height: 1.55;
+}
+.review-explanation-wide .deep-answer h3,
+.review-explanation-wide .rich-section h3 {
+  font-size: 16px;
+}
+.review-explanation-wide .reasoning-steps,
+.review-explanation-wide .eliminate-box ul {
+  font-size: 16px;
+  line-height: 1.9;
+}
+.review-explanation-wide .calculation-line {
+  font-size: 15.5px;
+  line-height: 1.75;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.review-explanation-wide .takeaway-box p,
+.review-explanation-wide .rich-summary p,
+.review-explanation-wide .rich-section p,
+.review-explanation-wide .rich-section ul {
+  font-size: 15.5px;
+  line-height: 1.9;
+}
+.review-explanation-wide .rich-summary,
+.review-explanation-wide .rich-section,
+.review-explanation-wide .calculation-box,
+.review-explanation-wide .eliminate-box,
+.review-explanation-wide .takeaway-box {
+  padding: 16px 18px;
+}
+.review-explanation-wide .rich-details > summary {
+  padding: 14px 18px;
+  font-size: 14px;
+}
+.review-explanation-actions {
+  max-width: 1120px;
+  margin: 22px auto 0;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.review-explanation-actions a {
+  text-decoration: none;
+}
+.review-explanation-actions .primary,
+.review-explanation-actions .secondary {
+  min-width: 180px;
+  text-align: center;
+}
+
+@media (max-width: 720px) {
+  .review-explanation-wide {
+    padding: 18px 14px;
+    border-radius: 16px;
+  }
+  .review-explanation-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 9px;
+  }
+  .review-explanation-topic {
+    white-space: normal;
+  }
+  .review-explanation-wide .reasoning-steps,
+  .review-explanation-wide .eliminate-box ul,
+  .review-explanation-wide .takeaway-box p,
+  .review-explanation-wide .rich-summary p,
+  .review-explanation-wide .rich-section p,
+  .review-explanation-wide .rich-section ul {
+    font-size: 15px;
+    line-height: 1.85;
+  }
+  .review-explanation-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+  .review-explanation-actions .primary,
+  .review-explanation-actions .secondary {
+    width: 100%;
+    min-width: 0;
+  }
+}

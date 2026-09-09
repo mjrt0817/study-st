@@ -38,7 +38,7 @@ type OfficialYear = OfficialA1Year | OfficialA2Year;
 type OfficialQuestion = OfficialA1Question | OfficialA2Question;
 type SyncState = "idle" | "loading" | "synced" | "error";
 const OFFICIAL_YEARS: OfficialYear[] = ["2025", "2024", "2023", "2022", "2021"];
-const APP_VERSION = "V4.4.1";
+const APP_VERSION = "V4.5";
 
 const ATTEMPTS_KEY = "st-a1-attempts-v2";
 const BOOKMARKS_KEY = "st-a1-bookmarks-v2";
@@ -960,15 +960,31 @@ export default function Home() {
                 </button>
               </>
             ) : (
-              <div className={`review-feedback ${reviewCorrect ? "ok" : "ng"}`}>
+              <div className={`review-feedback review-feedback-compact ${reviewCorrect ? "ok" : "ng"}`}>
                 <h2>{reviewCorrect ? "○ 正解" : "× 不正解"}</h2>
-                <DetailedExplanation question={q} defaultOpen={!reviewCorrect || reviewConfidence !== "confident"} />
-                <small>正解：{["ア", "イ", "ウ", "エ"][q.answer]}</small>
-                <a href={`${set.answerPdfUrl}`} target="_blank" rel="noreferrer">IPA公式解答を開く ↗</a>
-                <button className="primary large" onClick={nextReviewQuestion}>{reviewIndex + 1 >= reviewQuiz.length ? "結果を見る" : "次の問題"}</button>
+                <strong className="review-correct-answer">正解：{["ア", "イ", "ウ", "エ"][q.answer]}</strong>
+                <p>詳しい解説は、この問題表示の下に横幅を広く取って表示しています。</p>
+                <a href="#wide-review-explanation" className="secondary small review-jump-link">詳しい解説へ ↓</a>
               </div>
             )}
           </aside>
+
+          {reviewAnswered && (
+            <section id="wide-review-explanation" className={`review-explanation-wide ${reviewCorrect ? "ok" : "ng"}`}>
+              <div className="review-explanation-heading">
+                <div>
+                  <span className="review-explanation-kicker">{reviewExam}・{q.year}年度・問{q.number}</span>
+                  <h2>{reviewCorrect ? "○ 正解" : "× 不正解"}　正解：{["ア", "イ", "ウ", "エ"][q.answer]}</h2>
+                </div>
+                <span className="review-explanation-topic">{q.category} / {q.subcategory}</span>
+              </div>
+              <DetailedExplanation question={q} defaultOpen={!reviewCorrect || reviewConfidence !== "confident"} />
+              <div className="review-explanation-actions">
+                <a className="secondary" href={`${set.answerPdfUrl}`} target="_blank" rel="noreferrer">IPA公式解答を開く ↗</a>
+                <button className="primary" onClick={nextReviewQuestion}>{reviewIndex + 1 >= reviewQuiz.length ? "結果を見る" : "次の問題"}</button>
+              </div>
+            </section>
+          )}
         </section>
       </main>
     );
