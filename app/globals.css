@@ -369,3 +369,26 @@ footer p { margin: 5px 0; }
   .b1-problem-next { align-items: stretch; flex-direction: column; }
   .b1-pdf-frame iframe { min-height: 500px; }
 }
+
+/* V4.3 beginner-friendly rich explanations */
+.rich-explanation { margin: 10px 0 12px; text-align: left; }
+.rich-summary { border: 1px solid #c9d9ea; border-radius: 12px; background: #f6f9fd; padding: 12px 14px; }
+.rich-summary strong { display: block; color: var(--primary); font-size: 12px; margin-bottom: 5px; }
+.rich-summary p { margin: 0; line-height: 1.75; color: #35475b; }
+.rich-details { margin-top: 8px; border: 1px solid var(--line); border-radius: 12px; background: white; overflow: hidden; }
+.rich-details > summary { cursor: pointer; list-style: none; padding: 11px 14px; font-size: 12px; font-weight: 800; color: var(--primary); background: #fbfcfe; user-select: none; }
+.rich-details > summary::-webkit-details-marker { display: none; }
+.rich-details > summary::before { content: "＋"; display: inline-block; width: 20px; color: var(--primary); }
+.rich-details[open] > summary::before { content: "−"; }
+.rich-details[open] > summary { border-bottom: 1px solid var(--line); }
+.rich-section { padding: 12px 14px; border-bottom: 1px solid #edf1f5; }
+.rich-section:last-child { border-bottom: 0; }
+.rich-section h3 { margin: 0 0 6px; font-size: 12px; color: #33465c; }
+.rich-section p { margin: 0; color: #4c5d70; font-size: 12px; line-height: 1.8; }
+.rich-section ul { margin: 6px 0 0 19px; padding: 0; color: #4c5d70; font-size: 12px; line-height: 1.75; }
+.rich-section.compare { background: #fffaf0; }
+.explanation .rich-explanation, .review-feedback .rich-explanation { color: var(--text); }
+.official-review-list .rich-explanation { margin-top: 8px; }
+@media (max-width: 680px) {
+  .rich-summary, .rich-section { padding: 11px 12px; }
+}

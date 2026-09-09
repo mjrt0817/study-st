@@ -10,6 +10,7 @@ import { officialA2AllQuestions, officialA2Sets } from "../data/officialA2";
 import type { OfficialB1Year } from "../data/officialB1";
 import { officialB1Sets, officialB1Years } from "../data/officialB1";
 import { supabase, supabaseConfigured } from "../lib/supabase";
+import { buildRichExplanation } from "../lib/explanationGuide";
 import {
   Attempt,
   B1Practice,
@@ -140,6 +141,39 @@ type OfficialMetrics = {
   weakCategories: { name: string; accuracy: number; count: number }[];
   recommended: OfficialQuestion[];
 };
+
+function DetailedExplanation({ question, defaultOpen = true }: { question: Question | OfficialQuestion; defaultOpen?: boolean }) {
+  const guide = buildRichExplanation(question);
+  return (
+    <div className="rich-explanation">
+      <div className="rich-summary">
+        <strong>まず押さえるポイント</strong>
+        <p>{guide.summary}</p>
+      </div>
+      <details className="rich-details" open={defaultOpen}>
+        <summary>詳しい解説を{defaultOpen ? "確認" : "開く"}</summary>
+        <div className="rich-section">
+          <h3>初見向けの背景知識</h3>
+          <p>{guide.beginner}</p>
+        </div>
+        <div className="rich-section">
+          <h3>最低限ここを覚える</h3>
+          <ul>{guide.memorize.map((item, i) => <li key={`m-${i}`}>{item}</li>)}</ul>
+        </div>
+        <div className="rich-section">
+          <h3>次に同系統が出たときの解き方</h3>
+          <ul>{guide.solveTips.map((item, i) => <li key={`s-${i}`}>{item}</li>)}</ul>
+        </div>
+        {guide.compare.length > 0 && (
+          <div className="rich-section compare">
+            <h3>混同しやすいポイント</h3>
+            <ul>{guide.compare.map((item, i) => <li key={`c-${i}`}>{item}</li>)}</ul>
+          </div>
+        )}
+      </details>
+    </div>
+  );
+}
 
 function computeOfficialMetrics(attempts: Attempt[], questions: OfficialQuestion[]): OfficialMetrics {
   const ids = new Set(questions.map((q) => q.id));
@@ -828,7 +862,7 @@ export default function Home() {
           ) : (
             <div className={`explanation ${isCorrect ? "ok" : "ng"}`}>
               <h2>{isCorrect ? "○ 正解" : "× 不正解"}</h2>
-              <p>{q.explanation}</p>
+              <DetailedExplanation question={q} defaultOpen={!isCorrect || confidence !== "confident"} />
               <div className="source">出典：{q.source}</div>
               {q.sourceUrl && <a href={q.sourceUrl} target="_blank" rel="noreferrer">出典ページを開く ↗</a>}
               <button className="primary large" onClick={nextQuestion}>{index + 1 >= quiz.length ? "結果を見る" : "次の問題"}</button>
@@ -905,7 +939,7 @@ export default function Home() {
             ) : (
               <div className={`review-feedback ${reviewCorrect ? "ok" : "ng"}`}>
                 <h2>{reviewCorrect ? "○ 正解" : "× 不正解"}</h2>
-                <p>{q.learningPoint}</p>
+                <DetailedExplanation question={q} defaultOpen={!reviewCorrect || reviewConfidence !== "confident"} />
                 <small>正解：{["ア", "イ", "ウ", "エ"][q.answer]}</small>
                 <a href={`${set.answerPdfUrl}`} target="_blank" rel="noreferrer">IPA公式解答を開く ↗</a>
                 <button className="primary large" onClick={nextReviewQuestion}>{reviewIndex + 1 >= reviewQuiz.length ? "結果を見る" : "次の問題"}</button>
@@ -1038,7 +1072,7 @@ export default function Home() {
               {wrong.map(({ q, answer }) => (
                 <div key={q.id}>
                   <div className="review-title"><strong>問{q.number}</strong><span>{q.category} / {q.subcategory}</span></div>
-                  <p>{q.learningPoint}</p>
+                  <DetailedExplanation question={q} defaultOpen={false} />
                   <small>あなた：{answer ? ["ア","イ","ウ","エ"][answer.selected] : "未回答"} ／ 正解：{["ア","イ","ウ","エ"][q.answer]}</small>
                   <a href={`${currentOfficialSet.pdfUrl}#page=${q.pdfPage}`} target="_blank" rel="noreferrer">公式PDFの該当ページを開く ↗</a>
                 </div>
