@@ -38,7 +38,7 @@ type OfficialYear = OfficialA1Year | OfficialA2Year;
 type OfficialQuestion = OfficialA1Question | OfficialA2Question;
 type SyncState = "idle" | "loading" | "synced" | "error";
 const OFFICIAL_YEARS: OfficialYear[] = ["2025", "2024", "2023", "2022", "2021"];
-const APP_VERSION = "V4.5";
+const APP_VERSION = "V4.5.1";
 
 const ATTEMPTS_KEY = "st-a1-attempts-v2";
 const BOOKMARKS_KEY = "st-a1-bookmarks-v2";
@@ -920,7 +920,7 @@ export default function Home() {
             <iframe key={pdfSrc} src={pdfSrc} title={`IPA公式 ${q.year}年度 ${reviewExam} 問${q.number}`} />
             <p>{q.year}年度 問{q.number}（PDF {q.pdfPage}ページ）を確認して解答してください。</p>
           </div>
-          <aside className="official-answer-panel review-answer-panel">
+          <aside className={`official-answer-panel review-answer-panel ${reviewAnswered ? "answered" : ""}`}>
             <div className="official-question-heading">
               <span>{set.shortLabel} / {q.category} / {q.subcategory}</span>
               <strong>問{q.number}</strong>

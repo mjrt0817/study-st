@@ -463,6 +463,13 @@ footer p { margin: 5px 0; }
   .calculation-line { font-size: .9rem; overflow-wrap: anywhere; }
 }
 
+
+/* V4.5.1: stop the answer card from covering the wide explanation after answering */
+.review-answer-panel.answered {
+  position: static;
+  top: auto;
+}
+
 /* V4.5: keep the official problem readable while giving explanations full width */
 .review-feedback-compact {
   text-align: left;
