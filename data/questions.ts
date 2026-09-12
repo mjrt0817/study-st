@@ -9,6 +9,7 @@ export type Question = {
   explanation: string;
   source: string;
   sourceUrl?: string;
+  explanationUrl?: string;
   year?: string;
   official?: boolean;
   imageUrl?: string;

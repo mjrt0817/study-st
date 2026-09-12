@@ -630,3 +630,11 @@ footer p { margin: 5px 0; }
     min-width: 0;
   }
 }
+
+/* V4.6 AP-based A-1 */
+.ap-reference-explanation .deep-answer { max-width: 1120px; }
+.ap-explanation-link { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; margin: 8px 0 10px; min-width: 260px; }
+.ap-reference-note { margin: 0 0 14px; color: var(--muted); font-size: 12px; line-height: 1.7; }
+@media (max-width: 620px) {
+  .ap-explanation-link { width: 100%; min-width: 0; }
+}

@@ -4,7 +4,7 @@ import { ChangeEvent, useCallback, useEffect, useMemo, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { Question, seedQuestions } from "../data/questions";
 import type { OfficialA1Question, OfficialA1Year } from "../data/officialA1";
-import { officialA1AllQuestions, officialA1Sets } from "../data/officialA1";
+import { officialA1AllQuestions, officialA1Sets, officialA1Sessions } from "../data/officialA1";
 import type { OfficialA2Question, OfficialA2Year } from "../data/officialA2";
 import { officialA2AllQuestions, officialA2Sets } from "../data/officialA2";
 import type { OfficialB1Year } from "../data/officialB1";
@@ -37,8 +37,8 @@ type OfficialExam = "A-1" | "A-2";
 type OfficialYear = OfficialA1Year | OfficialA2Year;
 type OfficialQuestion = OfficialA1Question | OfficialA2Question;
 type SyncState = "idle" | "loading" | "synced" | "error";
-const OFFICIAL_YEARS: OfficialYear[] = ["2025", "2024", "2023", "2022", "2021"];
-const APP_VERSION = "V4.5.1";
+const A2_YEARS: OfficialA2Year[] = ["2025", "2024", "2023", "2022", "2021"];
+const APP_VERSION = "V4.6";
 
 const ATTEMPTS_KEY = "st-a1-attempts-v2";
 const BOOKMARKS_KEY = "st-a1-bookmarks-v2";
@@ -145,6 +145,24 @@ type OfficialMetrics = {
 };
 
 function DetailedExplanation({ question, defaultOpen = true }: { question: Question | OfficialQuestion; defaultOpen?: boolean }) {
+  if (question.explanationUrl) {
+    return (
+      <div className="rich-explanation ap-reference-explanation">
+        <section className="deep-answer">
+          <div className="deep-answer-title">
+            <span className="deep-answer-label">問題別解説</span>
+            <strong>正解は「{["ア", "イ", "ウ", "エ"][question.answer]}」です。</strong>
+          </div>
+          <h3>なぜこの答えになるのか</h3>
+          <p>このA-1問題は応用情報技術者試験の公式過去問です。正答根拠、計算問題の途中式、他の選択肢が違う理由まで確認できる問題別解説を用意しています。</p>
+          <a className="primary ap-explanation-link" href={question.explanationUrl} target="_blank" rel="noreferrer">詳しい問題別解説を開く ↗</a>
+          <p className="ap-reference-note">外部サイト：応用情報技術者試験.com。解説文は転載せず、問題ごとの解説ページを参照します。</p>
+          <div className="takeaway-box"><strong>このアプリでの復習ポイント</strong><p>{question.explanation}</p></div>
+        </section>
+      </div>
+    );
+  }
+
   const guide = buildRichExplanation(question);
   const deep = buildDeepReasoning(question);
   return (
@@ -265,7 +283,7 @@ export default function Home() {
   const [sessionAnswers, setSessionAnswers] = useState<{ id: string; correct: boolean }[]>([]);
   const [message, setMessage] = useState("");
   const [officialExam, setOfficialExam] = useState<OfficialExam>("A-1");
-  const [officialYear, setOfficialYear] = useState<OfficialYear>("2025");
+  const [officialYear, setOfficialYear] = useState<OfficialYear>("2025-fall");
   const [officialIndex, setOfficialIndex] = useState(0);
   const [officialSelections, setOfficialSelections] = useState<Record<string, { selected: number; confidence: Confidence }>>({});
   const [reviewQuiz, setReviewQuiz] = useState<OfficialQuestion[]>([]);
@@ -362,7 +380,9 @@ export default function Home() {
   const allQuestions = useMemo(() => [...seedQuestions, ...customQuestions], [customQuestions]);
   const categories = useMemo(() => Array.from(new Set(allQuestions.map((q) => q.category))).sort(), [allQuestions]);
   const statsQuestions = useMemo(() => [...allQuestions, ...officialA1AllQuestions, ...officialA2AllQuestions], [allQuestions]);
-  const currentOfficialSet = officialExam === "A-1" ? officialA1Sets[officialYear] : officialA2Sets[officialYear];
+  const currentOfficialSet = officialExam === "A-1"
+    ? officialA1Sets[officialYear as OfficialA1Year]
+    : officialA2Sets[officialYear as OfficialA2Year];
   const currentOfficialQuestions: OfficialQuestion[] = currentOfficialSet.questions;
   const statCategories = useMemo(() => Array.from(new Set(statsQuestions.map((q) => q.category))).sort(), [statsQuestions]);
   const a1Metrics = useMemo(() => computeOfficialMetrics(attempts, officialA1AllQuestions), [attempts]);
@@ -625,7 +645,7 @@ export default function Home() {
       await saveAttempts(user.id, newAttempts);
       setAttempts((current) => [...current, ...newAttempts]);
       setSyncState("synced");
-      setMessage(`${officialYear}年度${officialExam}公式過去問の結果をSupabaseへ保存しました。`);
+      setMessage(`${currentOfficialSet.eraLabel} ${officialExam}公式過去問の結果をSupabaseへ保存しました。`);
       setMode("officialResult");
     } catch (error) {
       console.error(error);
@@ -816,7 +836,7 @@ export default function Home() {
         <section className="auth-card">
           <div className="auth-mark">ST</div>
           <div className="eyebrow auth-eyebrow">IT STRATEGIST 2026</div>
-          <h1>科目A-1 / A-2 / B-1 トレーナー</h1>
+          <h1>科目A-1（応用情報午前） / A-2 / B-1 トレーナー</h1>
           <p>選択問題の履歴とB-1記述答案をSupabaseに保存します。Googleアカウントでログインすると、PCとスマホで同じ進捗を利用できます。</p>
           {message && <div className="notice">{message}</div>}
           <button className="google-button" onClick={signInWithGoogle}>
@@ -900,7 +920,9 @@ export default function Home() {
     const q = reviewQuiz[reviewIndex];
     if (!q) return null;
     const reviewExam: OfficialExam = q.exam === "A-2" ? "A-2" : "A-1";
-    const set = reviewExam === "A-1" ? officialA1Sets[q.year] : officialA2Sets[q.year];
+    const set = reviewExam === "A-1"
+      ? officialA1Sets[q.year as OfficialA1Year]
+      : officialA2Sets[q.year as OfficialA2Year];
     const pdfSrc = `/api/official-pdf?exam=${reviewExam === "A-1" ? "a1" : "a2"}&year=${q.year}#page=${q.pdfPage}&view=FitH`;
     const latest = latestOfficialAttempts.get(q.id);
     const reviewCorrect = reviewSelected === q.answer;
@@ -917,8 +939,8 @@ export default function Home() {
 
         <section className="official-layout">
           <div className="official-pdf-panel">
-            <iframe key={pdfSrc} src={pdfSrc} title={`IPA公式 ${q.year}年度 ${reviewExam} 問${q.number}`} />
-            <p>{q.year}年度 問{q.number}（PDF {q.pdfPage}ページ）を確認して解答してください。</p>
+            <iframe key={pdfSrc} src={pdfSrc} title={`IPA公式 ${set.eraLabel} ${reviewExam} 問${q.number}`} />
+            <p>{set.eraLabel} 問{q.number}を確認して解答してください。{reviewExam === "A-1" ? ` PDF ${q.pdfPage}ページ付近から表示します（位置は目安）。` : ` PDF ${q.pdfPage}ページ。`}</p>
           </div>
           <aside className={`official-answer-panel review-answer-panel ${reviewAnswered ? "answered" : ""}`}>
             <div className="official-question-heading">
@@ -973,7 +995,7 @@ export default function Home() {
             <section id="wide-review-explanation" className={`review-explanation-wide ${reviewCorrect ? "ok" : "ng"}`}>
               <div className="review-explanation-heading">
                 <div>
-                  <span className="review-explanation-kicker">{reviewExam}・{q.year}年度・問{q.number}</span>
+                  <span className="review-explanation-kicker">{reviewExam}・{set.eraLabel}・問{q.number}</span>
                   <h2>{reviewCorrect ? "○ 正解" : "× 不正解"}　正解：{["ア", "イ", "ウ", "エ"][q.answer]}</h2>
                 </div>
                 <span className="review-explanation-topic">{q.category} / {q.subcategory}</span>
@@ -981,6 +1003,7 @@ export default function Home() {
               <DetailedExplanation question={q} defaultOpen={!reviewCorrect || reviewConfidence !== "confident"} />
               <div className="review-explanation-actions">
                 <a className="secondary" href={`${set.answerPdfUrl}`} target="_blank" rel="noreferrer">IPA公式解答を開く ↗</a>
+                {q.explanationUrl && <a className="secondary" href={q.explanationUrl} target="_blank" rel="noreferrer">詳しい問題別解説 ↗</a>}
                 <button className="primary" onClick={nextReviewQuestion}>{reviewIndex + 1 >= reviewQuiz.length ? "結果を見る" : "次の問題"}</button>
               </div>
             </section>
@@ -1013,13 +1036,15 @@ export default function Home() {
     const q = currentOfficialQuestions[officialIndex];
     const current = officialSelections[q.id];
     const answeredCount = Object.keys(officialSelections).length;
-    const pdfSrc = `/api/official-pdf?exam=${officialExam === "A-1" ? "a1" : "a2"}&year=${officialYear}#page=${q.pdfPage}&view=FitH`;
+    const pdfSrc = officialExam === "A-1"
+      ? `/api/official-pdf?exam=a1&year=${officialYear}`
+      : `/api/official-pdf?exam=a2&year=${officialYear}#page=${q.pdfPage}&view=FitH`;
 
     return (
       <main className="app-shell official-shell">
         <header className="topbar">
           <button className="text-button" onClick={() => setMode("home")}>← 終了</button>
-          <div className="progress-text">{officialYear}年度公式 {officialExam}　回答済み {answeredCount} / {currentOfficialQuestions.length}</div>
+          <div className="progress-text">{currentOfficialSet.eraLabel} {officialExam}　回答済み {answeredCount} / {currentOfficialQuestions.length}</div>
           <a className="secondary small pdf-link-button" href={currentOfficialSet.pdfUrl} target="_blank" rel="noreferrer">PDFを別タブで開く ↗</a>
         </header>
         <div className="progress-track"><div className="progress-fill" style={{ width: `${(answeredCount / currentOfficialQuestions.length) * 100}%` }} /></div>
@@ -1027,12 +1052,12 @@ export default function Home() {
 
         <section className="official-layout">
           <div className="official-pdf-panel">
-            <iframe key={pdfSrc} src={pdfSrc} title={`IPA公式 ${officialYear}年度 ${officialExam} 問${q.number}`} />
-            <p>PDFはアプリ経由で表示しています。表示されない場合は、上部の「PDFを別タブで開く」を利用してください。</p>
+            <iframe key={pdfSrc} src={pdfSrc} title={`IPA公式 ${currentOfficialSet.eraLabel} ${officialExam}`} />
+            <p>{officialExam === "A-1" ? "応用情報の午前は80問です。PDFを順番にスクロールし、右側で問番号ごとの解答を記録してください。問題を移動してもPDFのスクロール位置は維持されます。" : "PDFはアプリ経由で表示しています。表示されない場合は、上部の『PDFを別タブで開く』を利用してください。"}</p>
           </div>
           <aside className="official-answer-panel">
             <div className="official-question-heading">
-              <span>IPA {currentOfficialSet.eraLabel} {officialExam === "A-1" ? "午前Ⅰ" : "午前Ⅱ"}</span>
+              <span>IPA {currentOfficialSet.eraLabel} {officialExam === "A-1" ? "応用情報 午前" : "ITストラテジスト 午前Ⅱ"}</span>
               <strong>問{q.number}</strong>
             </div>
             <p className="muted-text">左の公式問題を確認して、解答だけこちらで記録します。採点は全問終了後にまとめて行います。</p>
@@ -1097,7 +1122,7 @@ export default function Home() {
         <section className="result-card">
           <div className="result-ring"><strong>{rate}%</strong><span>{correct}/{currentOfficialQuestions.length} 正解</span></div>
           <h1>{rate >= 75 ? `${officialExam}はかなり良い位置です` : rate >= 60 ? "合格ライン付近です" : "弱点分野を優先して補強しましょう"}</h1>
-          <p>{officialYear}年度春期の公式{currentOfficialQuestions.length}問（{officialExam}）です。結果はSupabaseへ保存済みです。</p>
+          <p>{currentOfficialSet.eraLabel}の公式{currentOfficialQuestions.length}問（{officialExam}）です。結果はSupabaseへ保存済みです。</p>
           <div className="button-stack">
             <button className="primary" onClick={() => startOfficialExam(officialExam, officialYear)}>もう一度{currentOfficialQuestions.length}問解く</button>
             <a className="secondary result-link" href={currentOfficialSet.answerPdfUrl} target="_blank" rel="noreferrer">IPA公式解答を開く ↗</a>
@@ -1114,6 +1139,7 @@ export default function Home() {
                   <DetailedExplanation question={q} defaultOpen={false} />
                   <small>あなた：{answer ? ["ア","イ","ウ","エ"][answer.selected] : "未回答"} ／ 正解：{["ア","イ","ウ","エ"][q.answer]}</small>
                   <a href={`${currentOfficialSet.pdfUrl}#page=${q.pdfPage}`} target="_blank" rel="noreferrer">公式PDFの該当ページを開く ↗</a>
+                  {q.explanationUrl && <a href={q.explanationUrl} target="_blank" rel="noreferrer">詳しい問題別解説を開く ↗</a>}
                 </div>
               ))}
             </div>
@@ -1297,7 +1323,7 @@ export default function Home() {
             <div><strong>{customQuestions.length}</strong><span>追加問題</span></div>
             <div><strong>{allQuestions.length}</strong><span>アプリ内合計</span></div>
           </div>
-          <p className="muted-text">別途、2025〜2021年度春期の公式A-1各30問（150問）とA-2各25問（125問）、B-1は2025・2024年度の公式問題・解答例・採点講評を利用できます。</p>
+          <p className="muted-text">別途、A-1は2021〜2025年の応用情報技術者試験 午前（春秋10回・800問）、A-2は2025〜2021年のITストラテジスト午前Ⅱ（125問）、B-1は2025・2024年度の公式問題・解答例・採点講評を利用できます。</p>
           <a className="link-card" href="https://www.ipa.go.jp/shiken/mondai-kaiotu/index.html" target="_blank" rel="noreferrer">
             IPA公式 過去問題ページを開く ↗
           </a>
@@ -1312,8 +1338,8 @@ export default function Home() {
       <section className="hero">
         <div>
           <div className="eyebrow">ITストラテジスト 2026 ・ {APP_VERSION}</div>
-          <h1>科目A-1 / A-2 / B-1 トレーナー</h1>
-          <p>選択問題は弱点反復、記述問題は本文根拠と答案比較で鍛える。</p>
+          <h1>科目A-1（応用情報午前） / A-2 / B-1 トレーナー</h1>
+          <p>A-1は応用情報の午前過去5年を反復。A-2はST固有問題、B-1は記述答案で鍛える。</p>
         </div>
         <button className="gear" onClick={() => setMode("manage")}>⚙</button>
       </section>
@@ -1335,10 +1361,52 @@ export default function Home() {
       {message && <div className="notice" onClick={() => setMessage("")}>{message}</div>}
 
       <section className="summary-grid review-summary-grid">
-        <div className="summary-card"><span>公式275問 回答済み</span><strong>{a1Metrics.answeredCount + a2Metrics.answeredCount}</strong><small>/ 275問</small></div>
+        <div className="summary-card"><span>A系公式925問 回答済み</span><strong>{a1Metrics.answeredCount + a2Metrics.answeredCount}</strong><small>/ 925問</small></div>
         <div className="summary-card"><span>A-1 正答率</span><strong>{a1Metrics.currentAccuracy ?? "—"}</strong><small>{a1Metrics.currentAccuracy === null ? "" : "%"}</small></div>
         <div className="summary-card"><span>A-2 正答率</span><strong>{a2Metrics.currentAccuracy ?? "—"}</strong><small>{a2Metrics.currentAccuracy === null ? "" : "%"}</small></div>
         <div className="summary-card"><span>B-1 保存済み</span><strong>{b1Practices.length}</strong><small>/ 6問</small></div>
+      </section>
+
+
+
+
+
+
+
+
+
+
+
+      <section className="panel review-dashboard">
+        <div className="panel-heading">
+          <div><h2>A-1（応用情報 午前）年度横断・弱点復習</h2><p className="muted-text">2021〜2025年の春・秋10回、合計800問から優先問題を選びます。</p></div>
+          <span className="review-count">要復習 {a1Metrics.reviewIds.size}問</span>
+        </div>
+        <button className="recommend-card" onClick={() => startOfficialReview("A-1", "recommended")}>
+          <span className="recommend-icon">10</span><span><strong>A-1 今日のおすすめ10問</strong><small>誤答 → 知らなかった → 迷った → 弱点分野の順に優先</small></span><span>→</span>
+        </button>
+        <div className="review-filter-grid">
+          <button onClick={() => startOfficialReview("A-1", "wrong")}><strong>{a1Metrics.wrongCount}</strong><span>間違えた</span></button>
+          <button onClick={() => startOfficialReview("A-1", "unsure")}><strong>{a1Metrics.unsureCount}</strong><span>迷った</span></button>
+          <button onClick={() => startOfficialReview("A-1", "unknown")}><strong>{a1Metrics.unknownCount}</strong><span>知らなかった</span></button>
+        </div>
+        {a1Metrics.weakCategories.length > 0 && <div className="review-weak-row"><span>弱点TOP3</span>{a1Metrics.weakCategories.map((item) => <button key={item.name} onClick={() => startOfficialReview("A-1", "category", item.name)}>{item.name} <strong>{item.accuracy}%</strong></button>)}</div>}
+      </section>
+
+      <section className="panel">
+        <h2>A-1 応用情報 午前・過去5年</h2>
+        <p className="muted-text">本命教材です。2021〜2025年の春・秋を1回80問ずつ、公式PDFで順番に回します。</p>
+        <div className="action-grid">
+          <button className="action" onClick={() => startQuiz("random")}><span className="action-icon">補</span><span><strong>オリジナル補助10問</strong><small>過去問学習の補助として利用</small></span></button>
+          {officialA1Sessions.map((year) => { const set = officialA1Sets[year]; return (
+            <button key={`a1-${year}`} className="action official-action" onClick={() => startOfficialExam("A-1", year)}>
+              <span className="action-icon">{set.shortLabel}</span><span><strong>{set.shortLabel} 応用情報 午前80問</strong><small>IPA公式PDF＋クラウド採点＋問題別解説リンク</small></span>
+            </button>
+          ); })}
+          <button className="action" onClick={() => startQuiz("mock")}><span className="action-icon">補</span><span><strong>補助問題30問</strong><small>オリジナル問題セット</small></span></button>
+          <button className="action" onClick={() => startQuiz("weak")}><span className="action-icon">↻</span><span><strong>苦手を優先</strong><small>誤答・低正答率・知らなかった</small></span></button>
+          <button className="action" onClick={() => startQuiz("wrong")}><span className="action-icon">×</span><span><strong>誤答だけ</strong><small>{localWrongQuestionIds.size}問が対象</small></span></button>
+        </div>
       </section>
 
       <section className="panel review-dashboard">
@@ -1365,7 +1433,7 @@ export default function Home() {
         <h2>A-2 公式過去問</h2>
         <p className="muted-text">まずこちらを優先。各年度25問、5年分で125問です。</p>
         <div className="action-grid">
-          {OFFICIAL_YEARS.map((year) => { const set = officialA2Sets[year]; return (
+          {A2_YEARS.map((year) => { const set = officialA2Sets[year]; return (
             <button key={`a2-${year}`} className="action official-action" onClick={() => startOfficialExam("A-2", year)}>
               <span className="action-icon">{set.shortLabel}</span><span><strong>{year}公式A-2 25問</strong><small>IPA公式PDF＋クラウド採点</small></span>
             </button>
@@ -1383,37 +1451,6 @@ export default function Home() {
         </button>
         <div className="b1-year-summary">
           {officialB1Years.map((year) => <button key={year} onClick={() => openB1(year, 1)}><strong>{officialB1Sets[year].shortLabel} / {year}</strong><span>{b1Practices.filter((p) => p.year === year).length}/3問 保存済み</span></button>)}
-        </div>
-      </section>
-
-      <section className="panel review-dashboard">
-        <div className="panel-heading">
-          <div><h2>A-1 年度横断・弱点復習</h2><p className="muted-text">高度試験共通の2025〜2021年150問から、優先問題を選びます。</p></div>
-          <span className="review-count">要復習 {a1Metrics.reviewIds.size}問</span>
-        </div>
-        <button className="recommend-card" onClick={() => startOfficialReview("A-1", "recommended")}>
-          <span className="recommend-icon">10</span><span><strong>A-1 今日のおすすめ10問</strong><small>誤答 → 知らなかった → 迷った → 弱点分野の順に優先</small></span><span>→</span>
-        </button>
-        <div className="review-filter-grid">
-          <button onClick={() => startOfficialReview("A-1", "wrong")}><strong>{a1Metrics.wrongCount}</strong><span>間違えた</span></button>
-          <button onClick={() => startOfficialReview("A-1", "unsure")}><strong>{a1Metrics.unsureCount}</strong><span>迷った</span></button>
-          <button onClick={() => startOfficialReview("A-1", "unknown")}><strong>{a1Metrics.unknownCount}</strong><span>知らなかった</span></button>
-        </div>
-        {a1Metrics.weakCategories.length > 0 && <div className="review-weak-row"><span>弱点TOP3</span>{a1Metrics.weakCategories.map((item) => <button key={item.name} onClick={() => startOfficialReview("A-1", "category", item.name)}>{item.name} <strong>{item.accuracy}%</strong></button>)}</div>}
-      </section>
-
-      <section className="panel">
-        <h2>A-1 公式過去問・補助演習</h2>
-        <div className="action-grid">
-          <button className="action primary-action" onClick={() => startQuiz("random")}><span className="action-icon">▶</span><span><strong>ランダム10問</strong><small>オリジナル問題で現在地を確認</small></span></button>
-          {OFFICIAL_YEARS.map((year) => { const set = officialA1Sets[year]; return (
-            <button key={`a1-${year}`} className="action official-action" onClick={() => startOfficialExam("A-1", year)}>
-              <span className="action-icon">{set.shortLabel}</span><span><strong>{year}公式A-1 30問</strong><small>IPA公式PDF＋クラウド採点</small></span>
-            </button>
-          ); })}
-          <button className="action" onClick={() => startQuiz("mock")}><span className="action-icon">30</span><span><strong>A-1模擬試験</strong><small>最大30問・本番想定</small></span></button>
-          <button className="action" onClick={() => startQuiz("weak")}><span className="action-icon">↻</span><span><strong>苦手を優先</strong><small>誤答・低正答率・知らなかった</small></span></button>
-          <button className="action" onClick={() => startQuiz("wrong")}><span className="action-icon">×</span><span><strong>誤答だけ</strong><small>{localWrongQuestionIds.size}問が対象</small></span></button>
         </div>
       </section>
 
@@ -1443,12 +1480,12 @@ export default function Home() {
       </section>
 
       <section className="panel compact">
-        <div className="panel-heading"><div><h2>データ</h2><p className="muted-text">標準{seedQuestions.length}問 ＋ 追加{customQuestions.length}問 ＋ A系公式275問（A-1 150＋A-2 125）＋ B-1記述6問 ／ Supabase同期</p></div><button className="secondary small" onClick={() => setMode("manage")}>問題を追加</button></div>
+        <div className="panel-heading"><div><h2>データ</h2><p className="muted-text">A系公式925問（A-1 応用情報午前800＋A-2 ST午前Ⅱ125）＋ B-1記述6問 ＋ 補助問題{seedQuestions.length + customQuestions.length}問 ／ Supabase同期</p></div><button className="secondary small" onClick={() => setMode("manage")}>問題を追加</button></div>
       </section>
 
       <footer>
         <button className="text-button" onClick={() => void resetProgress()}>学習履歴をリセット</button>
-        <p>標準問題はオリジナル問題。A系2025〜2021年度とB-1 2025〜2024年度はIPA公式PDFを参照して学習します。</p>
+        <p>A-1は応用情報技術者試験の2021〜2025年春秋10回、A-2はITストラテジスト2021〜2025年、B-1は2024〜2025年のIPA公式PDFを参照して学習します。</p>
       </footer>
     </main>
   );
