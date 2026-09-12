@@ -38,7 +38,7 @@ type OfficialYear = OfficialA1Year | OfficialA2Year;
 type OfficialQuestion = OfficialA1Question | OfficialA2Question;
 type SyncState = "idle" | "loading" | "synced" | "error";
 const A2_YEARS: OfficialA2Year[] = ["2025", "2024", "2023", "2022", "2021"];
-const APP_VERSION = "V4.6";
+const APP_VERSION = "V4.6.1";
 
 const ATTEMPTS_KEY = "st-a1-attempts-v2";
 const BOOKMARKS_KEY = "st-a1-bookmarks-v2";
@@ -291,6 +291,7 @@ export default function Home() {
   const [reviewSelected, setReviewSelected] = useState<number | null>(null);
   const [reviewConfidence, setReviewConfidence] = useState<Confidence>("unsure");
   const [reviewAnswered, setReviewAnswered] = useState(false);
+  const [reviewPdfPageOffset, setReviewPdfPageOffset] = useState(0);
   const [reviewSessionAnswers, setReviewSessionAnswers] = useState<{ id: string; correct: boolean }[]>([]);
   const [b1Practices, setB1Practices] = useState<B1Practice[]>([]);
   const [b1DbReady, setB1DbReady] = useState(false);
@@ -692,6 +693,7 @@ export default function Home() {
     setReviewSelected(null);
     setReviewConfidence("unsure");
     setReviewAnswered(false);
+    setReviewPdfPageOffset(0);
     setReviewSessionAnswers([]);
     setMessage("");
     setMode("review");
@@ -732,6 +734,7 @@ export default function Home() {
     setReviewSelected(null);
     setReviewConfidence("unsure");
     setReviewAnswered(false);
+    setReviewPdfPageOffset(0);
   }
 
   function handleImport(event: ChangeEvent<HTMLInputElement>) {
@@ -923,7 +926,8 @@ export default function Home() {
     const set = reviewExam === "A-1"
       ? officialA1Sets[q.year as OfficialA1Year]
       : officialA2Sets[q.year as OfficialA2Year];
-    const pdfSrc = `/api/official-pdf?exam=${reviewExam === "A-1" ? "a1" : "a2"}&year=${q.year}#page=${q.pdfPage}&view=FitH`;
+    const displayPdfPage = reviewExam === "A-1" ? Math.max(1, q.pdfPage + reviewPdfPageOffset) : q.pdfPage;
+    const pdfSrc = `/api/official-pdf?exam=${reviewExam === "A-1" ? "a1" : "a2"}&year=${q.year}#page=${displayPdfPage}&view=FitH`;
     const latest = latestOfficialAttempts.get(q.id);
     const reviewCorrect = reviewSelected === q.answer;
 
@@ -932,15 +936,23 @@ export default function Home() {
         <header className="topbar">
           <button className="text-button" onClick={() => setMode("home")}>← 終了</button>
           <div className="progress-text">{reviewExam} 年度横断復習　{reviewIndex + 1} / {reviewQuiz.length}</div>
-          <a className="secondary small pdf-link-button" href={`${set.pdfUrl}#page=${q.pdfPage}`} target="_blank" rel="noreferrer">PDFを別タブで開く ↗</a>
+          <a className="secondary small pdf-link-button" href={`${set.pdfUrl}#page=${displayPdfPage}`} target="_blank" rel="noreferrer">PDFを別タブで開く ↗</a>
         </header>
         <div className="progress-track"><div className="progress-fill" style={{ width: `${((reviewIndex + (reviewAnswered ? 1 : 0)) / reviewQuiz.length) * 100}%` }} /></div>
         {message && <div className="notice" onClick={() => setMessage("")}>{message}</div>}
 
         <section className="official-layout">
           <div className="official-pdf-panel">
+            {reviewExam === "A-1" && (
+              <div className="pdf-page-adjust">
+                <button type="button" onClick={() => setReviewPdfPageOffset((x) => x - 1)}>← 前ページ</button>
+                <span>問{q.number}：PDF {displayPdfPage}ページ</span>
+                <button type="button" onClick={() => setReviewPdfPageOffset((x) => x + 1)}>次ページ →</button>
+                {reviewPdfPageOffset !== 0 && <button type="button" className="pdf-page-reset" onClick={() => setReviewPdfPageOffset(0)}>推定位置へ戻す</button>}
+              </div>
+            )}
             <iframe key={pdfSrc} src={pdfSrc} title={`IPA公式 ${set.eraLabel} ${reviewExam} 問${q.number}`} />
-            <p>{set.eraLabel} 問{q.number}を確認して解答してください。{reviewExam === "A-1" ? ` PDF ${q.pdfPage}ページ付近から表示します（位置は目安）。` : ` PDF ${q.pdfPage}ページ。`}</p>
+            <p>{set.eraLabel} 問{q.number}を確認して解答してください。{reviewExam === "A-1" ? ` PDF ${displayPdfPage}ページから表示しています。年度ごとの実ページ構成を基準に補正済みです。` : ` PDF ${q.pdfPage}ページ。`}</p>
           </div>
           <aside className={`official-answer-panel review-answer-panel ${reviewAnswered ? "answered" : ""}`}>
             <div className="official-question-heading">

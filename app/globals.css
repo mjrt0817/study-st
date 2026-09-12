@@ -638,3 +638,37 @@ footer p { margin: 5px 0; }
 @media (max-width: 620px) {
   .ap-explanation-link { width: 100%; min-width: 0; }
 }
+
+
+/* V4.6.1: AP A-1 PDF page alignment + manual one-page adjustment */
+.pdf-page-adjust {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+  background: #f8fbff;
+}
+.pdf-page-adjust span {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 800;
+}
+.pdf-page-adjust button {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: white;
+  color: var(--primary);
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.pdf-page-adjust button:hover { border-color: #8eb7e6; background: #f3f8fe; }
+.pdf-page-adjust .pdf-page-reset { color: var(--muted); margin-left: auto; }
+@media (max-width: 720px) {
+  .pdf-page-adjust { gap: 6px; padding: 8px; }
+  .pdf-page-adjust button { padding: 7px 8px; font-size: 11px; }
+  .pdf-page-adjust .pdf-page-reset { margin-left: 0; }
+}
